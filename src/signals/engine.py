@@ -53,20 +53,34 @@ def align_series(
     return merged[["a", "b"]]
 
 
-def _zscore_latest(spread: np.ndarray) -> float | None:
-    if len(spread) < 2:
-        return None
+def compute_pair_series(aligned: pd.DataFrame, corr_window: int = DEFAULT_CORR_WINDOW) -> pd.DataFrame:
+    """Recebe um DataFrame com colunas 'a'/'b' (já alinhadas) e devolve, para CADA data,
+    o spread (resíduo da regressão a ~ b), o z-score do spread contra a amostra inteira, e a
+    correlação móvel — usado tanto para o sinal do dia quanto para os gráficos históricos do
+    dashboard (Fase 3)."""
+    a, b = aligned["a"], aligned["b"]
+
+    X = sm.add_constant(b.to_numpy())
+    model = sm.OLS(a.to_numpy(), X).fit()
+    hedge_ratio = float(model.params[1])
+    spread = pd.Series(np.asarray(model.resid), index=aligned.index)
+
     std = spread.std(ddof=1)
-    if not std or np.isnan(std):
-        return None
-    return float((spread[-1] - spread.mean()) / std)
+    zscore = (spread - spread.mean()) / std if std and not np.isnan(std) else pd.Series(np.nan, index=spread.index)
 
+    rolling_corr = a.rolling(corr_window).corr(b)
 
-def _rolling_correlation_latest(a: pd.Series, b: pd.Series, window: int) -> float | None:
-    if len(a) < window:
-        return None
-    corr = a.tail(window).corr(b.tail(window))
-    return float(corr) if pd.notna(corr) else None
+    return pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "spread": spread,
+            "zscore": zscore,
+            "correlacao_movel": rolling_corr,
+            "hedge_ratio": hedge_ratio,
+        },
+        index=aligned.index,
+    )
 
 
 def compute_pair_signal(
@@ -79,28 +93,26 @@ def compute_pair_signal(
     if len(aligned) < min_obs:
         return None
 
-    a, b = aligned["a"], aligned["b"]
-
-    X = sm.add_constant(b.to_numpy())
-    model = sm.OLS(a.to_numpy(), X).fit()
-    hedge_ratio = float(model.params[1])
-    spread = np.asarray(model.resid)
+    series = compute_pair_series(aligned, corr_window=corr_window)
+    last = series.iloc[-1]
 
     try:
-        _, coint_pvalue, _ = coint(a.to_numpy(), b.to_numpy())
+        _, coint_pvalue, _ = coint(aligned["a"].to_numpy(), aligned["b"].to_numpy())
         coint_pvalue = float(coint_pvalue)
     except Exception:
         coint_pvalue = None
 
     latest_index = aligned.index[-1]
     latest_date = latest_index.date() if hasattr(latest_index, "date") else latest_index
+    zscore = float(last["zscore"]) if pd.notna(last["zscore"]) else None
+    correlacao_movel = float(last["correlacao_movel"]) if pd.notna(last["correlacao_movel"]) else None
 
     return PairSignal(
         data=latest_date,
-        hedge_ratio=hedge_ratio,
-        spread=float(spread[-1]),
-        zscore=_zscore_latest(spread),
-        correlacao_movel=_rolling_correlation_latest(a, b, corr_window),
+        hedge_ratio=float(last["hedge_ratio"]),
+        spread=float(last["spread"]),
+        zscore=zscore,
+        correlacao_movel=correlacao_movel,
         coint_pvalue=coint_pvalue,
         n_obs=len(aligned),
     )

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Decomposição cambial — market_imbalances{% endblock %}
+{% block content %}
+  <h1>Decomposição cambial</h1>
+  <p>
+    USD/BRL, DXY (cesta do dólar), ITCR-BR/IREER (câmbio efetivo real do Real) e IC-Br
+    (índice de commodities), cada série rebasada a 100 no seu primeiro valor disponível —
+    compara variação percentual, não nível absoluto. Isola o quanto do movimento do câmbio é
+    força global do dólar vs. idiossincrático do Real vs. commodities.
+  </p>
+
+  {% if not chart or not chart.datasets %}
+    <p><em>Dados insuficientes ainda. Rode o backfill/coleta primeiro.</em></p>
+  {% else %}
+    <div class="chart-wrap">
+      <canvas id="currencyChart" height="320"></canvas>
+    </div>
+    <script>
+      const chartData = {{ chart | tojson }};
+      new Chart(document.getElementById('currencyChart'), {
+        type: 'line',
+        data: { labels: chartData.labels, datasets: chartData.datasets.map(ds => ({ ...ds, pointRadius: 1 })) },
+        options: { animation: false, spanGaps: true, scales: { x: { ticks: { maxTicksLimit: 12 } } } },
+      });
+    </script>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ pair.instrument_a.ticker }} / {{ pair.instrument_b.ticker }} — market_imbalances{% endblock %}
+{% block content %}
+  <p><a href="/">&larr; painel de oportunidades</a></p>
+  <h1>{{ pair.instrument_a.ticker }} / {{ pair.instrument_b.ticker }}</h1>
+  <p>{{ pair.tese_teorica or "Sem tese registrada." }}</p>
+
+  {% if not has_data %}
+    <p><em>Histórico insuficiente para calcular sinais deste par ainda.</em></p>
+  {% else %}
+    <p>{{ n_obs }} observações alinhadas.</p>
+
+    <div class="chart-wrap">
+      <h2>Spread (z-score) com bandas de ±1σ / ±2σ</h2>
+      <canvas id="spreadChart" height="300"></canvas>
+    </div>
+
+    <div class="chart-wrap">
+      <h2>Dispersão: {{ pair.instrument_a.ticker }} vs {{ pair.instrument_b.ticker }}</h2>
+      <canvas id="scatterChart" height="300"></canvas>
+    </div>
+
+    <div class="chart-wrap">
+      <h2>Correlação móvel</h2>
+      <canvas id="correlationChart" height="300"></canvas>
+    </div>
+
+    <script>
+      const spreadData = {{ spread_chart | tojson }};
+      const scatterData = {{ scatter | tojson }};
+      const correlationData = {{ correlation_chart | tojson }};
+
+      new Chart(document.getElementById('spreadChart'), {
+        type: 'line',
+        data: {
+          labels: spreadData.labels,
+          datasets: spreadData.datasets.map(ds => ({
+            label: ds.label,
+            data: ds.data,
+            borderDash: ds.band ? [6, 4] : [],
+            borderColor: ds.band ? '#8888' : undefined,
+            pointRadius: ds.band ? 0 : 1,
+            borderWidth: ds.band ? 1 : 2,
+          })),
+        },
+        options: { animation: false, scales: { x: { ticks: { maxTicksLimit: 12 } } } },
+      });
+
+      new Chart(document.getElementById('scatterChart'), {
+        type: 'scatter',
+        data: { datasets: [{ label: scatterData.label_a + ' vs ' + scatterData.label_b, data: scatterData.points }] },
+        options: {
+          animation: false,
+          scales: {
+            x: { title: { display: true, text: scatterData.label_b } },
+            y: { title: { display: true, text: scatterData.label_a } },
+          },
+        },
+      });
+
+      new Chart(document.getElementById('correlationChart'), {
+        type: 'line',
+        data: { labels: correlationData.labels, datasets: correlationData.datasets },
+        options: { animation: false, scales: { y: { min: -1, max: 1 }, x: { ticks: { maxTicksLimit: 12 } } } },
+      });
+    </script>
+  {% endif %}
+{% endblock %}

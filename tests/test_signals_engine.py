@@ -3,7 +3,7 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 
-from src.signals.engine import align_series, compute_pair_signal
+from src.signals.engine import align_series, compute_pair_series, compute_pair_signal
 
 
 def test_align_series_matches_monthly_to_nearest_prior_daily():
@@ -57,3 +57,22 @@ def test_compute_pair_signal_returns_none_below_min_obs():
     aligned = pd.DataFrame({"a": [1, 2, 3, 4, 5], "b": [1, 2, 3, 4, 5]}, index=index)
 
     assert compute_pair_signal(aligned, min_obs=20) is None
+
+
+def test_compute_pair_series_matches_signal_on_last_row():
+    rng = np.random.default_rng(7)
+    n = 80
+    b_values = np.cumsum(rng.normal(0, 1, n)) + 50
+    a_values = 1.5 * b_values + 5 + rng.normal(0, 0.3, n)
+    index = pd.date_range("2026-01-01", periods=n, freq="D")
+    aligned = pd.DataFrame({"a": a_values, "b": b_values}, index=index)
+
+    series = compute_pair_series(aligned, corr_window=10)
+    signal = compute_pair_signal(aligned, corr_window=10)
+
+    assert len(series) == n
+    assert list(series.columns) == ["a", "b", "spread", "zscore", "correlacao_movel", "hedge_ratio"]
+    assert signal is not None
+    assert series["spread"].iloc[-1] == signal.spread
+    assert series["zscore"].iloc[-1] == signal.zscore
+    assert series["hedge_ratio"].iloc[-1] == signal.hedge_ratio

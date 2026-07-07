@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Painel de oportunidades — market_imbalances{% endblock %}
+{% block content %}
+  <h1>Painel de oportunidades</h1>
+  <p>Pares monitorados, ordenados por |z-score| do spread (maior desvio primeiro).</p>
+
+  {% if not rows %}
+    <p><em>Nenhum par ativo ainda. Rode <code>python -m src.signals.run_daily</code> depois de coletar dados.</em></p>
+  {% else %}
+  <table>
+    <thead>
+      <tr>
+        <th>Par</th>
+        <th>Tese</th>
+        <th>Data</th>
+        <th>z-score</th>
+        <th>Correlação móvel</th>
+        <th>p-valor cointegração</th>
+        <th>Hedge ratio</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        {% set s = row.signal %}
+        <tr>
+          <td><a href="/pair/{{ row.pair.id }}">{{ row.pair.instrument_a.ticker }} / {{ row.pair.instrument_b.ticker }}</a></td>
+          <td class="tese">{{ row.pair.tese_teorica or "—" }}</td>
+          {% if s %}
+            <td>{{ s.data }}</td>
+            <td class="{{ 'zscore-hot' if s.zscore is not none and s.zscore|abs >= 2 else '' }}">
+              {{ "%.2f"|format(s.zscore) if s.zscore is not none else "n/a" }}
+            </td>
+            <td>{{ "%.2f"|format(s.correlacao_movel) if s.correlacao_movel is not none else "n/a" }}</td>
+            <td>{{ "%.4f"|format(s.coint_pvalue) if s.coint_pvalue is not none else "n/a" }}</td>
+            <td>{{ "%.3f"|format(s.hedge_ratio) if s.hedge_ratio is not none else "n/a" }}</td>
+          {% else %}
+            <td colspan="5"><em>sem sinal calculado ainda</em></td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+{% endblock %}
