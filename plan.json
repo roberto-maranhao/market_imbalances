@@ -1,0 +1,585 @@
+{
+  "meta": {
+    "project": "market_imbalances",
+    "created": "2026-07-07",
+    "language": "pt-BR",
+    "description": "Sistema para identificar oportunidades de investimento a partir de assimetrias/desalinhamentos entre preços de commodities, ações de empresas relacionadas e câmbio (USD/EUR/BRL) frente a cestas de moedas. Este arquivo é o plano de referência; a implementação é feita por um agent dedicado (.claude/agents/market-imbalances-builder.md) que lê este plano e executa os roadmap[].tasks em ordem.",
+    "disclaimer": "Projeto educacional/experimental. Não é recomendação de investimento. Os autores não se responsabilizam por decisões de investimento tomadas com base neste software nem por perdas financeiras decorrentes do seu uso. Ver README.md."
+  },
+  "constraints": {
+    "language": "Python 3.11+",
+    "deployment_target": "Raspberry Pi (Linux, ARM), rodando 24/7 em rede local",
+    "exposure": "Web via IP:porta direto, HTTP simples, SEM autenticação/controle de usuário (fase inicial)",
+    "license": "Open-source (repo agora sob LICENSE AGPL-3.0, trocado de Apache-2.0 para permitir combinar código com dependências AGPL como o OpenBB)",
+    "secrets": "Arquivo .env (não versionado) para API keys; .env.example versionado como template",
+    "users": "Mono-usuário",
+    "database": "SQLite (arquivo único, sem servidor separado)",
+    "resource_profile": "CPU/RAM limitados (Pi) — evitar frameworks pesados, preferir libs vetorizadas (NumPy) a loops Python, evitar processos concorrentes desnecessários"
+  },
+  "data_sources": {
+    "acoes": [
+      {
+        "name": "yfinance",
+        "type": "biblioteca Python (scraping não-oficial do Yahoo Finance)",
+        "free": true,
+        "api_key_required": false,
+        "coverage": "Global + B3 via sufixo .SA (ex: PETR4.SA, VALE3.SA)",
+        "rate_limits": "Não documentado oficialmente; sujeito a bloqueios/HTTP 429 sob uso intenso — exige backoff/retry e cache local",
+        "notes": "Opção default para cron leve no Pi; tratar como best-effort, não garantido."
+      },
+      {
+        "name": "brapi.dev",
+        "type": "API REST dedicada à B3",
+        "free": true,
+        "api_key_required": "Recomendado (grátis) para além de 4 tickers de teste",
+        "coverage": "Ações brasileiras (B3)",
+        "rate_limits": "15.000 requisições/mês no plano free",
+        "notes": "Melhor fonte nativa para ações brasileiras (Vale, Petrobras, etc.). Doc: brapi.dev/docs"
+      },
+      {
+        "name": "Finnhub",
+        "type": "API REST",
+        "free": true,
+        "api_key_required": true,
+        "coverage": "Principalmente EUA no free tier; cobertura internacional exige plano pago",
+        "rate_limits": "60 req/min",
+        "notes": "Complementar para ações americanas (proxies de IA/SpaceX)."
+      },
+      {
+        "name": "Alpha Vantage",
+        "type": "API REST",
+        "free": true,
+        "api_key_required": true,
+        "coverage": "Global, cobertura BR limitada/inexistente no free",
+        "rate_limits": "25 req/dia, 5 req/min — muito restritivo",
+        "notes": "Só viável para poucos tickers/dia; não usar como fonte primária."
+      },
+      {
+        "name": "Twelve Data",
+        "type": "API REST",
+        "free": true,
+        "api_key_required": true,
+        "coverage": "B3 só em plano pago",
+        "rate_limits": "~8 req/min (~800/dia) no free",
+        "notes": "Free tier não cobre ações brasileiras — descartar para B3, avaliar só para EUA."
+      },
+      {
+        "name": "IEX Cloud",
+        "type": "API REST",
+        "free": null,
+        "api_key_required": true,
+        "coverage": "N/A",
+        "rate_limits": "N/A",
+        "notes": "DESCONTINUADA (encerrada em 31/ago/2024). Não usar."
+      },
+      {
+        "name": "Polygon.io / Massive.com",
+        "type": "API REST",
+        "free": false,
+        "api_key_required": true,
+        "coverage": "Global",
+        "rate_limits": "N/A",
+        "notes": "Sem tier gratuito real (a partir de US$99/mês). Descartado para este projeto."
+      },
+      {
+        "name": "EOD Historical Data (EODHD)",
+        "type": "API REST",
+        "free": true,
+        "api_key_required": true,
+        "coverage": "Principalmente EUA/EOD no free; 'All World' (com BR) é pago (US$19,99/mês+)",
+        "rate_limits": "20 chamadas/dia (bônus único de 500)",
+        "notes": "Só como fallback pontual, não como fonte primária."
+      }
+    ],
+    "commodities": [
+      {
+        "name": "yfinance (tickers de futuros)",
+        "free": true,
+        "api_key_required": false,
+        "coverage": "GC=F (ouro), CL=F (WTI), BZ=F (Brent), ZS=F (soja), ZC=F (milho), TIO=F (minério de ferro 62% Fe CFR China)",
+        "notes": "Opção default grátis; TIO=F pode ter dados esparsos/atrasados — é a melhor opção gratuita conhecida para minério de ferro."
+      },
+      {
+        "name": "BCB IC-Br (Índice de Commodities Brasil)",
+        "type": "API SGS do Banco Central do Brasil",
+        "free": true,
+        "api_key_required": false,
+        "series_code": 27574,
+        "frequency": "mensal",
+        "endpoint_example": "https://api.bcb.gov.br/dados/serie/bcdata.sgs.27574/dados/ultimos/2?formato=json",
+        "notes": "Verificado ao vivo, retorna dados reais. Bom proxy agregado de commodities relevantes para o Brasil."
+      },
+      {
+        "name": "Nasdaq Data Link (ex-Quandl)",
+        "free": true,
+        "api_key_required": true,
+        "rate_limits": "até 50.000 chamadas/dia no free com key",
+        "notes": "Cobertura de commodities específicas (minério) é limitada/legada — verificar dataset por dataset antes de depender."
+      },
+      {
+        "name": "Trading Economics API",
+        "free": false,
+        "api_key_required": true,
+        "notes": "Sem free tier realmente utilizável (guest key muito limitado). Não recomendado."
+      }
+    ],
+    "cambio": [
+      {
+        "name": "BCB SGS/PTAX (via python-bcb)",
+        "type": "API do Banco Central do Brasil",
+        "free": true,
+        "api_key_required": false,
+        "series": {
+          "usd_venda": 1,
+          "eur_venda": 21619
+        },
+        "odata_endpoint": "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/",
+        "python_lib": "python-bcb (PyPI)",
+        "notes": "Verificado ao vivo (USD~5,15, EUR~5,88 no momento da pesquisa). Fonte primária recomendada para USD/BRL e EUR/BRL oficiais."
+      },
+      {
+        "name": "Frankfurter.app",
+        "free": true,
+        "api_key_required": false,
+        "notes": "Sem key, sem cota fixa (apenas rate-limit anti-abuso). Dados do BCE, atualização diária ~16h CET. Bom fallback internacional (base EUR)."
+      },
+      {
+        "name": "yfinance (pares forex)",
+        "free": true,
+        "api_key_required": false,
+        "coverage": "USDBRL=X, EURBRL=X, EURUSD=X",
+        "notes": "Bom para cross-check contra BCB."
+      },
+      {
+        "name": "Open Exchange Rates",
+        "free": true,
+        "api_key_required": true,
+        "rate_limits": "1.000 req/mês, base fixa USD, atualização horária",
+        "notes": "'Forever free' para uso pessoal/open source — usar como terceiro fallback."
+      },
+      {
+        "name": "Fixer.io",
+        "free": true,
+        "api_key_required": true,
+        "rate_limits": "100 req/mês, só EUR como base, sem HTTPS no free",
+        "notes": "Muito limitado — evitar como dependência principal."
+      },
+      {
+        "name": "exchangerate.host",
+        "free": false,
+        "api_key_required": true,
+        "notes": "Modelo antigo 'grátis sem key' foi descontinuado; hoje exige key via APILayer/plano pago. Verificar pricing antes de usar."
+      }
+    ],
+    "cestas_de_moedas": [
+      {
+        "name": "DXY — ICE US Dollar Index",
+        "source": "yfinance",
+        "tickers": [
+          "DX-Y.NYB",
+          "DX=F"
+        ],
+        "free": true,
+        "api_key_required": false,
+        "notes": "Cesta ponderada por EUR (~57,6%), JPY, GBP, CAD, SEK, CHF. Usar para isolar força global do USD."
+      },
+      {
+        "name": "BCB ITCR-BR / IREER (Índice da Taxa de Câmbio Efetiva Real)",
+        "type": "API SGS do Banco Central do Brasil",
+        "free": true,
+        "api_key_required": false,
+        "series_code": 11752,
+        "frequency": "mensal",
+        "notes": "Verificado ao vivo, retorna dados reais (~121,38 / 117,85). Mede BRL contra cesta de parceiros comerciais, ajustado por inflação — essencial para achar o 'fair value' do câmbio."
+      },
+      {
+        "name": "FRED DTWEXBGS (Nominal Broad US Dollar Index)",
+        "type": "API do Federal Reserve (FRED)",
+        "free": true,
+        "api_key_required": true,
+        "python_lib": "fredapi (PyPI)",
+        "notes": "Key grátis via cadastro simples. Rate limit generoso, ideal para cron diário."
+      }
+    ]
+  },
+  "theory": {
+    "intro": "O projeto assume que preços de ativos relacionados devem se mover de forma previsível no longo prazo (cointegração), e que desvios temporários dessa relação — desde que a relação fundamental continue válida — tendem a reverter. A tarefa central é (a) formalizar a relação esperada, (b) medir o desvio atual, e (c) distinguir 'desvio temporário que reverte' de 'quebra estrutural da relação'.",
+    "commodity_equity": {
+      "description": "Empresas produtoras de commodities (mineradoras, petrolíferas, agro) têm alavancagem operacional sobre o preço da commodity: custos fixos altos fazem com que o lucro (e, em teoria, a ação) se mova de forma amplificada (beta > 1) em relação ao preço do produto. Mas essa relação é modulada por outros fatores que criam a assimetria explorável.",
+      "examples": [
+        {
+          "pair": "Minério de ferro (TIO=F / IODEX) vs Vale (VALE3.SA / VALE)",
+          "expected_relationship": "Positiva, beta > 1 no médio prazo (~70-80% da receita da Vale vem de minério de ferro)",
+          "modulating_factors": [
+            "Câmbio USD/BRL (Vale reporta em USD, mas VALE3 negocia em BRL)",
+            "Risco-país/regulatório específico (ex: desastre de Brumadinho, tributação, política de mineração)",
+            "Demanda chinesa por aço (proxy: PMI industrial da China, produção de aço)",
+            "Custo de produção (opex/capex) e política de dividendos",
+            "A ação é forward-looking (precifica expectativa futura); a commodity é spot"
+          ]
+        },
+        {
+          "pair": "Petróleo Brent (BZ=F) vs Petrobras (PETR4.SA / PBR)",
+          "expected_relationship": "Positiva, mas historicamente MENOS que proporcional",
+          "modulating_factors": [
+            "Intervenção do governo na política de preços de combustíveis (caso clássico brasileiro de descolamento entre Brent e PETR4)",
+            "Câmbio USD/BRL",
+            "Margem de refino",
+            "Risco de governança/política (empresa estatal)"
+          ]
+        }
+      ],
+      "note": "A distância entre o comportamento 'teórico' (beta implícito por regressão) e o comportamento observado no curto prazo é o sinal de oportunidade — desde que os fatores modulantes acima não expliquem integralmente o desvio."
+    },
+    "currency": {
+      "description": "Framework para decompor movimentos cambiais em componente global (USD forte/fraco) vs idiossincrático (BRL específico).",
+      "models": [
+        {
+          "name": "Paridade do Poder de Compra (PPP)",
+          "application": "Estimar taxa de câmbio de equilíbrio de longo prazo comparando níveis de preços; desvios grandes sinalizam câmbio 'caro' ou 'barato' (estilo Big Mac Index)."
+        },
+        {
+          "name": "Teoria da moeda-commodity (commodity currency)",
+          "application": "BRL, AUD, CAD, ZAR se comportam como 'moeda-commodity': valorizam quando os preços de exportação do país (minério, soja) sobem (efeito termos de troca). Comparar BRL contra o IC-Br (índice de commodities do BCB) para checar se o câmbio está 'atrasado' ou 'adiantado' em relação às commodities exportadas."
+        },
+        {
+          "name": "Paridade de juros / carry trade",
+          "application": "Diferencial entre SELIC e juros de EUA/zona do euro atrai capital independentemente de commodities. É preciso 'limpar' o efeito de carry trade antes de atribuir um desvio cambial puramente ao canal de commodities."
+        },
+        {
+          "name": "Decomposição via cesta (DXY vs IREER/ITCR-BR)",
+          "application": "Se o USD está forte GLOBALMENTE (DXY sobe contra todas as moedas), a queda do BRL não é um sinal idiossincrático. Comparar a variação do USD/BRL com a variação do DXY e do IREER isola o quanto do movimento é 'força do dólar no mundo' vs 'fraqueza específica do Real' — esse resíduo é o sinal relevante."
+        }
+      ]
+    },
+    "statistical_methods": [
+      {
+        "name": "Teste de cointegração (Engle-Granger / Johansen)",
+        "library": "statsmodels.tsa.stattools.coint",
+        "purpose": "Verificar se duas séries (ex: preço do minério e VALE3) têm uma relação de equilíbrio de longo prazo estatisticamente válida antes de tratar o par como 'par de trading'."
+      },
+      {
+        "name": "Hedge ratio dinâmico via filtro de Kalman",
+        "library": "pykalman",
+        "purpose": "Em vez de regressão OLS estática, atualizar o beta/hedge ratio dinamicamente — relações entre commodity e ação mudam com o tempo (ex: mudança de mix de receita da empresa)."
+      },
+      {
+        "name": "Z-score do spread",
+        "purpose": "Normalizar o desvio atual entre as duas séries (spread = preço_A - hedge_ratio * preço_B) em unidades de desvio-padrão, para gerar sinal de entrada/saída (ex: |z| > 2 = oportunidade)."
+      },
+      {
+        "name": "Correlação móvel (rolling correlation, janelas de 30/90/252 dias)",
+        "purpose": "Detectar quando a relação estatística está SE QUEBRANDO (correlação caindo estruturalmente) — sinal de que a 'teoria' não vale mais para aquele par, e não apenas de oportunidade de reversão."
+      }
+    ]
+  },
+  "visualizations": [
+    {
+      "name": "Gráfico de spread com bandas de z-score",
+      "chart_type": "linha temporal + bandas horizontais (±1σ, ±2σ)",
+      "purpose": "Visualização clássica de pairs trading: mostra o spread normalizado entre commodity e ação (ou entre câmbio e cesta) e destaca quando cruza as bandas — sinal direto de entrada/saída."
+    },
+    {
+      "name": "Dispersão (scatter) com linha de regressão",
+      "chart_type": "scatter plot, eixo X = preço da commodity, eixo Y = preço da ação, colorido por tempo (gradiente)",
+      "purpose": "Mostra visualmente se o ponto atual está 'acima' ou 'abaixo' da relação histórica esperada."
+    },
+    {
+      "name": "Correlação móvel",
+      "chart_type": "linha temporal do coeficiente de correlação (30/90/252 dias)",
+      "purpose": "Alerta de quebra de regime — se a correlação está desmoronando, o par deixou de ser confiável."
+    },
+    {
+      "name": "Decomposição cambial",
+      "chart_type": "múltiplas linhas (eixo duplo) — USD/BRL, DXY, IREER/ITCR-BR, IC-Br no mesmo período normalizado (base 100)",
+      "purpose": "Isolar quanto do movimento do BRL é força global do dólar vs fraqueza idiossincrática vs descolamento de commodities."
+    },
+    {
+      "name": "Painel de oportunidades ('opportunity board')",
+      "chart_type": "tabela ordenável + sparklines",
+      "purpose": "Lista todos os pares monitorados, ordenados por |z-score| decrescente, com confiança (p-valor da cointegração), última atualização e direção sugerida do sinal."
+    },
+    {
+      "name": "Heatmap de força de sinal",
+      "chart_type": "matriz pares x tempo, colorida por |z-score|",
+      "purpose": "Visão panorâmica diária de quais pares estão mais esticados no momento."
+    }
+  ],
+  "case_studies": {
+    "spacex_ai_bubble": {
+      "context": "IMPORTANTE: a SpaceX abriu capital em IPO em 12/06/2026 na Nasdaq (ticker SPCX), levantando ~US$75bi a valuation implícito de ~US$1,75-1,77 tri (maior IPO da história). Isso muda o approach: SpaceX deixou de ser um caso de 'rastrear valuation privada' e virou uma ação pública normal, com 10-Q/10-K via SEC EDGAR. A metodologia de mercado secundário abaixo continua relevante para outros 'unicórnios' ainda privados (OpenAI, Anthropic, xAI, Anduril).",
+      "private_valuation_tracking_methodology": [
+        {
+          "name": "Forge Global",
+          "notes": "Publica 'Forge Price' (preço implícito em negociações secundárias); dashboards públicos por empresa, dados institucionais completos são pagos."
+        },
+        {
+          "name": "Caplight",
+          "notes": "'MarketPrice' cruza rodadas + negociações + book de ordens com receita (Sacra) para múltiplos EV/Receita; institucional/pago."
+        },
+        {
+          "name": "Zanbato",
+          "notes": "Alimenta o Morningstar PitchBook Unicorn 20 Index (histórico desde 2015)."
+        },
+        {
+          "name": "Destiny Tech100 (ticker DXYZ)",
+          "notes": "Closed-end fund listado (registrado na SEC) que detém participações em unicórnios — o NAV/holdings são acessíveis via EDGAR, dá para automatizar como proxy indireto de marcação a mercado."
+        },
+        {
+          "name": "Imprensa (Bloomberg/Reuters)",
+          "notes": "Fora das plataformas acima, é essencialmente notícia sobre tender offers e rodadas — não há API gratuita confiável; caminho automatizável é scraping de imprensa + EDGAR para fundos como DXYZ."
+        }
+      ],
+      "public_proxies": [
+        {
+          "ticker": "SPCX",
+          "notes": "Exposição direta pós-IPO à SpaceX."
+        },
+        {
+          "ticker": "RKLB",
+          "notes": "Rocket Lab — proxy mais próximo em lançamento/satélites."
+        },
+        {
+          "ticker": "ASTS",
+          "notes": "AST SpaceMobile — concorrente/complementar do Starlink."
+        },
+        {
+          "ticker": "GSAT",
+          "notes": "Globalstar."
+        },
+        {
+          "ticker": "VSAT",
+          "notes": "Viasat."
+        },
+        {
+          "ticker": "STM",
+          "notes": "STMicroelectronics — fornecedor de chips RF para antenas Starlink."
+        }
+      ],
+      "ai_bubble_indicators": [
+        {
+          "source": "SEC EDGAR XBRL API",
+          "endpoint": "https://data.sec.gov/api/xbrl/companyfacts/{CIK}.json",
+          "free": true,
+          "api_key_required": false,
+          "rate_limit": "até 10 req/s",
+          "usage": "Puxar capex (tag PaymentsToAcquirePropertyPlantAndEquipment), emissão de dívida (ProceedsFromIssuanceOfLongTermDebt) e receita de MSFT, GOOGL, AMZN, META, NVDA, ORCL — calcular intensidade de capex (capex/receita) ao longo do tempo."
+        },
+        {
+          "source": "EIA (U.S. Energy Information Administration)",
+          "free": true,
+          "api_key_required": true,
+          "usage": "Consumo/capacidade de datacenter (~130GW hoje, ~260GW projetados até 2030) como proxy físico do buildout de IA."
+        },
+        {
+          "source": "Imprensa especializada (Bloomberg 'AI circular deals' graphic, relatórios de bancos)",
+          "usage": "Monitorar deals circulares Nvidia↔OpenAI↔Oracle↔CoreWeave (>US$800bi identificados); sinais qualitativos como o estudo do NBER (fev/2026, ~95% dos projetos corporativos de IA sem ROI mensurável) e projeção de prejuízo da OpenAI (~US$14bi em 2026)."
+        }
+      ],
+      "thermometer_assets": [
+        {
+          "ticker": "SMH",
+          "notes": "VanEck Semiconductor ETF — exposição a chips."
+        },
+        {
+          "ticker": "NVDA",
+          "notes": "Núcleo do ciclo de capex de IA."
+        },
+        {
+          "ticker": "MSFT/GOOGL/AMZN/META/ORCL",
+          "notes": "Big techs com maior capex em IA."
+        },
+        {
+          "ticker": "CRWV",
+          "notes": "CoreWeave — cloud IA pure-play, no centro dos deals circulares."
+        },
+        {
+          "ticker": "DLR/EQIX/IRM",
+          "notes": "REITs de datacenter."
+        },
+        {
+          "ticker": "VST/CEG/GEV",
+          "notes": "Energia/utilities ligadas a demanda de datacenter."
+        }
+      ],
+      "signal_idea": "Construir um índice sintético de 'intensidade de capex de IA' (capex hyperscalers / receita agregada, via EDGAR) e comparar com o retorno acumulado da cesta de 'termômetro' (SMH, NVDA, CRWV, DLR, EQIX). Divergência onde os ativos sobem mais rápido que a capacidade de geração de caixa que sustenta o capex é o sinal de alerta de bolha a ser visualizado (mesmo framework de spread/z-score usado para commodities)."
+    }
+  },
+  "similar_projects": [
+    {
+      "name": "andreasg123/portfolio-tracker",
+      "url": "github.com/andreasg123/portfolio-tracker",
+      "relevance": "Flask + SQLite, mono-usuário, sem auth complexa — esqueleto arquitetural próximo do desejado."
+    },
+    {
+      "name": "Kokolipa/Nasdaq_100",
+      "url": "github.com/Kokolipa/Nasdaq_100",
+      "relevance": "Pipeline API → SQLAlchemy → SQLite, bom exemplo de ETL simples."
+    },
+    {
+      "name": "Gaurav23-bit/Z-Score-Tracker",
+      "url": "github.com/Gaurav23-bit/Z-Score-Tracker",
+      "relevance": "Streamlit + OLS hedge ratio + ADF + z-score EWMA — pipeline mais próximo do módulo de sinal deste projeto."
+    },
+    {
+      "name": "je-suis-tm/quant-trading (pasta 'Oil Money project')",
+      "url": "github.com/je-suis-tm/quant-trading",
+      "license": "MIT",
+      "relevance": "Analisa relação entre moedas de países exportadores de commodities e petróleo — lógica adaptável para BRL vs minério/petróleo."
+    },
+    {
+      "name": "open-risk/correlationMatrix",
+      "url": "github.com/open-risk/correlationMatrix",
+      "relevance": "Biblioteca dedicada a análise/visualização estatística de correlação de séries temporais — candidata a dependência direta."
+    },
+    {
+      "name": "statsmodels",
+      "license": "BSD-3",
+      "relevance": "Teste de cointegração (Engle-Granger) — peça central do motor de sinais."
+    },
+    {
+      "name": "pykalman",
+      "license": "BSD",
+      "relevance": "Filtro de Kalman para hedge ratio dinâmico."
+    },
+    {
+      "name": "vectorbt (open-source)",
+      "license": "Apache-2.0 + Commons Clause (não pode vender produto baseado nele)",
+      "relevance": "Varredura vetorizada de muitos pares rapidamente, leve em CPU — bom para Pi."
+    },
+    {
+      "name": "freqtrade",
+      "license": "GPLv3",
+      "relevance": "Arquitetura coleta→estratégia→sinal→notificação (Telegram) como referência para módulo de alertas futuro."
+    },
+    {
+      "name": "OpenBB",
+      "url": "github.com/OpenBB-finance/OpenBB",
+      "license": "AGPL-3.0 (mudou de MIT em 2024/2025)",
+      "relevance": "Referência de providers de dados. Compatível para embutir/combinar código: o repo agora é AGPL-3.0 (mesma licença do OpenBB), então não há mais conflito de licença ao reaproveitar código dele diretamente."
+    }
+  ],
+  "architecture": {
+    "stack": {
+      "backend": "Python 3.11+, Flask (leve, sem overhead de websocket como Streamlit/Dash — melhor fit para Pi mono-usuário)",
+      "orm_db": "SQLAlchemy + SQLite",
+      "scheduling": "cron do sistema operacional chamando scripts Python (mais leve que APScheduler residente em processo)",
+      "signal_engine": "pandas, numpy, statsmodels (cointegração), pykalman (hedge ratio dinâmico, opcional)",
+      "frontend": "Jinja2 + Chart.js (via CDN) — leve; alternativa avaliada e descartada por peso: Streamlit/Dash/Grafana+SQLite (Grafana exige plugin extra para SQLite e processo Go separado)",
+      "secrets": "python-dotenv lendo .env (não versionado); .env.example versionado como template",
+      "http_server": "Flask dev server é insuficiente para produção; usar gunicorn ou waitress atrás do Flask, bind em 0.0.0.0:PORTA"
+    },
+    "data_flow": "cron job diário (ou intraday para forex) -> conectores por fonte (yfinance, brapi.dev, python-bcb, Frankfurter, fredapi, SEC EDGAR) -> normalização -> SQLite (tabela raw_prices) -> motor de sinais (cointegração, z-score, correlação móvel) roda sobre pares configurados -> grava em tabela signals -> app Flask lê de signals + raw_prices para renderizar dashboard.",
+    "database_schema_sketch": {
+      "instruments": "id, ticker, tipo (acao|commodity|forex|indice), nome, fonte_primaria",
+      "prices": "id, instrument_id (FK), data, preco, fonte, criado_em",
+      "pairs": "id, instrument_a_id (FK), instrument_b_id (FK), tese_teorica (texto), ativo (bool)",
+      "signals": "id, pair_id (FK), data, spread, hedge_ratio, zscore, correlacao_movel, coint_pvalue"
+    },
+    "deployment": {
+      "target": "Raspberry Pi, systemd service para o app Flask + gunicorn/waitress, cron para os jobs de coleta",
+      "exposure": "bind 0.0.0.0:PORTA na rede local; sem HTTPS/auth na fase inicial (documentar claramente esse risco no README)"
+    }
+  },
+  "risks_and_caveats": [
+    "yfinance não é API oficial — pode quebrar sem aviso; sempre ter fallback (brapi.dev para B3, Frankfurter para forex).",
+    "Minério de ferro não tem fonte gratuita robusta em tempo real — TIO=F via yfinance é best-effort, dados podem ser esparsos.",
+    "Correlação/cointegração histórica pode quebrar por mudança estrutural (ex: nova política de preços da Petrobras) — o dashboard precisa distinguir 'oportunidade' de 'relação morta', daí o gráfico de correlação móvel.",
+    "App sem autenticação exposto via IP:porta: aceitável apenas em rede local/confiável; documentar que não deve ser exposto diretamente à internet sem VPN/reverse-proxy com auth.",
+    "APIs com free tier (Finnhub, FRED, brapi.dev) exigem chave — guardar todas em .env, nunca commitar.",
+    "O repo é AGPL-3.0: qualquer fork rodado como serviço de rede (mesmo sem redistribuir binário) deve disponibilizar o código-fonte modificado. Isso é intencional (mantém tudo aberto), mas documentar isso claramente para quem for hospedar uma variante.",
+    "Dashboard deve exibir um disclaimer visível (rodapé) reafirmando que não é recomendação de investimento e que os autores não se responsabilizam por perdas financeiras — mesmo texto do README.md."
+  ],
+  "roadmap": [
+    {
+      "phase": 0,
+      "name": "Fundação do projeto",
+      "goal": "Estrutura de repo, dependências e configuração básica",
+      "tasks": [
+        "Criar estrutura de diretórios (src/, src/collectors/, src/signals/, src/web/, tests/)",
+        "Criar requirements.txt (flask, sqlalchemy, pandas, numpy, statsmodels, pykalman, yfinance, python-bcb, fredapi, python-dotenv, gunicorn)",
+        "Criar .env.example com placeholders (FRED_API_KEY, BRAPI_TOKEN, FINNHUB_API_KEY, etc.)",
+        "Configurar SQLite + modelos SQLAlchemy (instruments, prices, pairs, signals)"
+      ],
+      "deliverables": [
+        "estrutura de projeto rodável",
+        ".env.example",
+        "schema.sql ou migrations iniciais"
+      ]
+    },
+    {
+      "phase": 1,
+      "name": "Coleta de dados",
+      "goal": "Conectores para cada fonte de dados priorizada",
+      "tasks": [
+        "Conector yfinance (ações globais, commodities via futuros, forex)",
+        "Conector brapi.dev (B3)",
+        "Conector python-bcb / SGS (PTAX USD/EUR, IC-Br, ITCR-BR)",
+        "Conector Frankfurter (fallback forex)",
+        "Conector fredapi (DTWEXBGS)",
+        "Conector SEC EDGAR XBRL (capex/dívida de hyperscalers para o case study de IA)",
+        "Job de coleta diário agendável via cron, com retry/backoff e log de falhas por fonte"
+      ],
+      "deliverables": [
+        "módulo collectors/ funcional",
+        "job cron testável manualmente"
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Motor de sinais",
+      "goal": "Implementar a teoria (seção 5-6) como código",
+      "tasks": [
+        "Configuração de pares monitorados (ex: TIO=F/VALE3.SA, BZ=F/PETR4.SA, IC-Br/BRL, DXY/IREER)",
+        "Teste de cointegração (Engle-Granger) por par",
+        "Cálculo de hedge ratio (OLS estático inicial; Kalman como evolução)",
+        "Cálculo de z-score do spread e correlação móvel",
+        "Persistência dos sinais em SQLite"
+      ],
+      "deliverables": [
+        "módulo signals/ funcional",
+        "tabela signals populada para os pares iniciais"
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Dashboard web",
+      "goal": "Visualizações da seção 6 acessíveis via navegador",
+      "tasks": [
+        "App Flask com rotas para: opportunity board, detalhe de par (spread+bandas, scatter, correlação móvel), decomposição cambial",
+        "Templates Jinja2 + Chart.js",
+        "Rodar via gunicorn/waitress, bind 0.0.0.0"
+      ],
+      "deliverables": [
+        "dashboard acessível em http://<ip-do-pi>:<porta>"
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Case study SpaceX/bolha de IA",
+      "goal": "Módulo dedicado usando os proxies e indicadores mapeados na seção case_studies",
+      "tasks": [
+        "Coletar capex/dívida via SEC EDGAR para MSFT, GOOGL, AMZN, META, NVDA, ORCL",
+        "Construir índice sintético de intensidade de capex de IA",
+        "Acompanhar cesta termômetro (SMH, NVDA, CRWV, DLR, EQIX, SPCX, RKLB)",
+        "Visualizar divergência entre índice de capex e retorno da cesta"
+      ],
+      "deliverables": [
+        "página dedicada no dashboard para o case study"
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Deploy no Raspberry Pi",
+      "goal": "Rodar de forma persistente e resiliente no hardware alvo",
+      "tasks": [
+        "Systemd service para o app Flask",
+        "Cron jobs para coleta diária/intraday",
+        "Documentar no README riscos de exposição sem auth e recomendação de uso em rede local"
+      ],
+      "deliverables": [
+        "serviço systemd + cron configurados e documentados"
+      ]
+    }
+  ]
+}
