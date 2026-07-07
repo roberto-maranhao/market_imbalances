@@ -8,14 +8,20 @@ Uso manual, roda uma vez (ou esporadicamente): python -m src.collectors.backfill
 import logging
 
 from src.collectors.run_daily import TIPO_POR_TICKER
-from src.collectors.sources import bcb_source, yfinance_source
+from src.collectors.sources import bcb_source, edgar_source, yfinance_source
 from src.collectors.store import get_or_create_instrument, upsert_price
 from src.collectors.types import PriceRecord
 from src.db import get_session, init_db
 
 logger = logging.getLogger(__name__)
 
-YFINANCE_TICKERS = ["TIO=F", "VALE3.SA", "BZ=F", "PETR4.SA", "DX-Y.NYB"]
+# pares do motor de sinais (Fase 2)
+PAIR_TICKERS = ["TIO=F", "VALE3.SA", "BZ=F", "PETR4.SA", "DX-Y.NYB"]
+
+# cesta termômetro do case study SpaceX/bolha de IA (ver plan.json -> case_studies.spacex_ai_bubble)
+THERMOMETER_TICKERS = ["SMH", "NVDA", "CRWV", "DLR", "EQIX", "SPCX", "RKLB"]
+
+YFINANCE_TICKERS = PAIR_TICKERS + THERMOMETER_TICKERS
 
 BCB_SERIES = {
     "USDBRL_PTAX": bcb_source.SERIES["USDBRL_PTAX"],
@@ -28,6 +34,7 @@ def collect(period: str = "2y", years: int = 5) -> list[PriceRecord]:
     records = yfinance_source.fetch_history(YFINANCE_TICKERS, period=period)
     for ticker, codigo in BCB_SERIES.items():
         records.extend(bcb_source.fetch_history(ticker, codigo, years=years))
+    records.extend(edgar_source.fetch_history())
     return records
 
 

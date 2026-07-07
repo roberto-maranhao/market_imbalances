@@ -5,7 +5,19 @@ from src.db import get_session
 from src.models import Instrument, Pair
 from src.signals.engine import align_series, compute_pair_series
 from src.signals.loader import load_price_series
-from src.web.charts import rebased_multi_series_chart, rolling_correlation_chart, scatter_chart, spread_zscore_chart
+from src.web.case_study import (
+    capex_intensity_index,
+    latest_snapshot_table,
+    load_hyperscaler_series,
+    thermometer_basket_index,
+)
+from src.web.charts import (
+    line_dataset,
+    rebased_multi_series_chart,
+    rolling_correlation_chart,
+    scatter_chart,
+    spread_zscore_chart,
+)
 
 # tickers usados na página de decomposição cambial (ver plan.json -> visualizations, "Decomposição cambial")
 CURRENCY_DECOMPOSITION_TICKERS = {
@@ -80,6 +92,28 @@ def create_app() -> Flask:
 
             chart = rebased_multi_series_chart(series_by_label) if series_by_label else None
             return render_template("currency_decomposition.html", chart=chart)
+        finally:
+            session.close()
+
+    @app.route("/case-study/ia-bubble")
+    def ai_bubble_case_study():
+        session = get_session()
+        try:
+            hyperscaler_series = load_hyperscaler_series(session)
+            snapshot = latest_snapshot_table(hyperscaler_series)
+
+            capex_index = capex_intensity_index(hyperscaler_series)
+            capex_chart = line_dataset(capex_index, "Capex agregado / Receita agregada") if not capex_index.empty else None
+
+            basket_index = thermometer_basket_index(session)
+            basket_chart = line_dataset(basket_index, "Cesta termômetro (retorno acumulado, base 100)") if not basket_index.empty else None
+
+            return render_template(
+                "ai_bubble_case_study.html",
+                snapshot=snapshot,
+                capex_chart=capex_chart,
+                basket_chart=basket_chart,
+            )
         finally:
             session.close()
 

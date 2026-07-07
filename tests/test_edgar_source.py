@@ -1,4 +1,4 @@
-from src.collectors.sources.edgar_source import _latest_usd_value
+from src.collectors.sources.edgar_source import _all_framed_values, _latest_usd_value
 
 
 def make_facts(entries):
@@ -67,3 +67,55 @@ def test_latest_usd_value_prefers_quarter_over_ttm_with_same_end_date():
     result = _latest_usd_value(facts, ["PaymentsToAcquirePropertyPlantAndEquipment"])
 
     assert result == ("2026-03-31", 44_203_000_000.0)
+
+
+def test_all_framed_values_only_keeps_frame_tagged_entries_sorted_by_end():
+    facts = make_facts(
+        [
+            {"start": "2025-01-01", "end": "2025-03-31", "val": 10.0, "frame": "CY2025Q1"},
+            {"start": "2024-04-01", "end": "2025-03-31", "val": 40.0},  # TTM sem frame, deve ser ignorado
+            {"start": "2025-04-01", "end": "2025-06-30", "val": 12.0, "frame": "CY2025Q2"},
+        ]
+    )
+
+    result = _all_framed_values(facts, ["PaymentsToAcquirePropertyPlantAndEquipment"])
+
+    assert result == [("2025-03-31", 10.0), ("2025-06-30", 12.0)]
+
+
+def test_all_framed_values_merges_across_tags_without_overwriting_first_match():
+    facts = {
+        "facts": {
+            "us-gaap": {
+                "Revenues": {
+                    "units": {"USD": [{"start": "2017-01-01", "end": "2017-03-31", "val": 5.0, "frame": "CY2017Q1"}]}
+                },
+                "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                    "units": {"USD": [{"start": "2026-01-01", "end": "2026-03-31", "val": 9.0, "frame": "CY2026Q1"}]}
+                },
+            }
+        }
+    }
+
+    result = _all_framed_values(facts, ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax"])
+
+    assert result == [("2017-03-31", 5.0), ("2026-03-31", 9.0)]
+
+
+def test_all_framed_values_excludes_annual_frame_at_same_end_as_q4():
+    """Caso real observado no capex da Amazon: a SEC marca o 10-K anual com frame 'CY2013'
+    (sem 'Qn') no MESMO 'end' de 31/dez que o Q4 usaria — sem filtrar, o total anual
+    (~4x maior) some junto com os trimestres na série, distorcendo qualquer índice
+    calculado sobre ela."""
+    facts = make_facts(
+        [
+            {"start": "2013-01-01", "end": "2013-03-31", "val": 670.0, "frame": "CY2013Q1"},
+            {"start": "2013-04-01", "end": "2013-06-30", "val": 855.0, "frame": "CY2013Q2"},
+            {"start": "2013-07-01", "end": "2013-09-30", "val": 1038.0, "frame": "CY2013Q3"},
+            {"start": "2013-01-01", "end": "2013-12-31", "val": 3444.0, "frame": "CY2013"},  # ANUAL, não Q4
+        ]
+    )
+
+    result = _all_framed_values(facts, ["PaymentsToAcquirePropertyPlantAndEquipment"])
+
+    assert result == [("2013-03-31", 670.0), ("2013-06-30", 855.0), ("2013-09-30", 1038.0)]

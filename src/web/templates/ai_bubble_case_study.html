@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Case study: SpaceX / bolha de IA — market_imbalances{% endblock %}
+{% block content %}
+  <h1>Case study: SpaceX / bolha de IA</h1>
+  <p>
+    SpaceX abriu capital (IPO em 12/06/2026, ticker <strong>SPCX</strong>) — deixou de ser um
+    caso de rastrear valuation privada e virou uma ação pública normal. O que resta como
+    distorção a monitorar é o capex de IA dos hyperscalers vs. o retorno da cesta de ativos
+    que precifica essa narrativa (ver plan.json -&gt; case_studies.spacex_ai_bubble).
+  </p>
+
+  <h2>Intensidade de capex de IA (capex agregado / receita agregada, por trimestre)</h2>
+  {% if not capex_chart %}
+    <p><em>Dados insuficientes ainda (rode o backfill).</em></p>
+  {% else %}
+    <p>
+      Soma capex e soma receita entre os hyperscalers que reportaram dado naquele trimestre
+      via SEC EDGAR, e mostra a razão. O conjunto de empresas contribuindo pode variar por
+      trimestre (nem toda empresa reporta a mesma tag XBRL com a mesma frequência — ver
+      tabela abaixo e o caveat de granularidade no plan.json).
+    </p>
+    <div class="chart-wrap">
+      <canvas id="capexChart" height="280"></canvas>
+    </div>
+  {% endif %}
+
+  <h2>Cesta termômetro (retorno acumulado, base 100)</h2>
+  <p>SMH, NVDA, CRWV, DLR, EQIX, SPCX, RKLB — média simples de cada série rebasada ao seu próprio primeiro valor disponível.</p>
+  {% if not basket_chart %}
+    <p><em>Dados insuficientes ainda (rode o backfill).</em></p>
+  {% else %}
+    <div class="chart-wrap">
+      <canvas id="basketChart" height="280"></canvas>
+    </div>
+  {% endif %}
+
+  <h2>Última leitura por empresa (SEC EDGAR)</h2>
+  {% if not snapshot %}
+    <p><em>Nenhum dado de fundamentals coletado ainda.</em></p>
+  {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th>Empresa</th>
+          <th>Capex mais recente</th>
+          <th>Receita mais recente</th>
+          <th>Capex/Receita (último trimestre em comum)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in snapshot %}
+          <tr>
+            <td>{{ row.ticker }}</td>
+            <td>
+              {% if row.capex is not none %}
+                US$ {{ "{:,.1f}".format(row.capex / 1e9) }} bi ({{ row.capex_data }})
+              {% else %}n/a{% endif %}
+            </td>
+            <td>
+              {% if row.revenue is not none %}
+                US$ {{ "{:,.1f}".format(row.revenue / 1e9) }} bi ({{ row.revenue_data }})
+              {% else %}n/a{% endif %}
+            </td>
+            <td>
+              {% if row.ratio is not none %}
+                {{ "%.1f"|format(row.ratio * 100) }}% ({{ row.ratio_data }})
+              {% else %}n/a{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <script>
+    {% if capex_chart %}
+      const capexData = {{ capex_chart | tojson }};
+      new Chart(document.getElementById('capexChart'), {
+        type: 'line',
+        data: { labels: capexData.labels, datasets: capexData.datasets },
+        options: { animation: false, scales: { y: { ticks: { callback: v => (v * 100).toFixed(0) + '%' } } } },
+      });
+    {% endif %}
+
+    {% if basket_chart %}
+      const basketData = {{ basket_chart | tojson }};
+      new Chart(document.getElementById('basketChart'), {
+        type: 'line',
+        data: { labels: basketData.labels, datasets: basketData.datasets },
+        options: { animation: false, scales: { x: { ticks: { maxTicksLimit: 12 } } } },
+      });
+    {% endif %}
+  </script>
+{% endblock %}
