@@ -36,6 +36,15 @@ PAIR_SEEDS: list[tuple[str, str, str]] = [
         "Decomposição cambial: força global do USD (DXY) vs câmbio efetivo real do BRL "
         "(ITCR-BR/IREER) — isola o quanto do movimento do Real é idiossincrático.",
     ),
+    (
+        "BBDC3.SA",
+        "BBDC4.SA",
+        "Bradesco ON (BBDC3) vs PN (BBDC4): mesma empresa, mesmos fundamentos — só direito "
+        "a voto (ON) vs prioridade em dividendos (PN) diferem. O spread entre as duas classes "
+        "deveria oscilar num range estreito e estável; desvios tendem a ser ruído de liquidez "
+        "de curto prazo, não mudança de tese, o que torna esse par um caso de cointegração "
+        "mais 'limpo' que os pares commodity-empresa.",
+    ),
 ]
 
 

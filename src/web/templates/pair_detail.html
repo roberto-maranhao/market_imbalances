@@ -8,12 +8,86 @@
   {% if not has_data %}
     <p><em>Histórico insuficiente para calcular sinais deste par ainda.</em></p>
   {% else %}
-    <p>{{ n_obs }} observações alinhadas.</p>
+    <p>{{ n_obs }} observações alinhadas · última data: {{ summary.data_atual }}</p>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <span class="summary-label">{{ pair.instrument_a.ticker }} (atual)</span>
+        <span class="summary-value">{{ "%.4g"|format(summary.a_atual) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">{{ pair.instrument_b.ticker }} (atual)</span>
+        <span class="summary-value">{{ "%.4g"|format(summary.b_atual) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">Spread atual (média histórica ≈ {{ "%.2g"|format(summary.spread_medio) }})</span>
+        <span class="summary-value">{{ "%.4g"|format(summary.spread_atual) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">Desvio-padrão histórico do spread</span>
+        <span class="summary-value">{{ "%.4g"|format(summary.desvio_padrao) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">z-score atual</span>
+        <span class="summary-value {{ 'zscore-hot' if summary.zscore_atual is not none and summary.zscore_atual|abs >= 2 else '' }}">
+          {{ "%.2f"|format(summary.zscore_atual) if summary.zscore_atual is not none else "n/a" }}
+        </span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">Oportunidade estimada</span>
+        <span class="summary-value">
+          {% if summary.oportunidade_pct is not none %}
+            {{ pair.instrument_a.ticker }} {{ "%+.1f"|format(summary.oportunidade_pct) }}% até a média
+          {% else %}n/a{% endif %}
+        </span>
+      </div>
+    </div>
+    <p class="note">
+      "Oportunidade estimada" = quanto {{ pair.instrument_a.ticker }} precisaria variar (mantendo
+      {{ pair.instrument_b.ticker }} parado) para o spread voltar à sua média histórica. É uma
+      leitura simples do z-score em unidades do próprio ativo, não uma previsão.
+    </p>
 
     <div class="chart-wrap">
       <h2>Spread (z-score) com bandas de ±1σ / ±2σ</h2>
       <canvas id="spreadChart" height="300"></canvas>
     </div>
+
+    <h2>Episódios de oportunidade (|z-score| ≥ 2, até normalizar em ≤ 0.5)</h2>
+    {% if not episodes %}
+      <p><em>Nenhum episódio nessa faixa no histórico disponível.</em></p>
+    {% else %}
+      <table>
+        <thead>
+          <tr>
+            <th>Início</th>
+            <th>Fim</th>
+            <th>Duração</th>
+            <th>Pico z-score</th>
+            <th>{{ pair.instrument_a.ticker }} (início → fim)</th>
+            <th>{{ pair.instrument_b.ticker }} (início → fim)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ep in episodes %}
+            <tr>
+              <td>{{ ep.inicio }}</td>
+              <td>{{ ep.fim if ep.fim else "em andamento" }}</td>
+              <td>{{ ep.duracao_dias }} dias</td>
+              <td>{{ "%.2f"|format(ep.pico_zscore) }}</td>
+              <td>
+                {{ "%.4g"|format(ep.a_inicio) }} → {{ "%.4g"|format(ep.a_fim) }}
+                ({{ "%+.1f"|format((ep.a_fim - ep.a_inicio) / ep.a_inicio * 100) }}%)
+              </td>
+              <td>
+                {{ "%.4g"|format(ep.b_inicio) }} → {{ "%.4g"|format(ep.b_fim) }}
+                ({{ "%+.1f"|format((ep.b_fim - ep.b_inicio) / ep.b_inicio * 100) }}%)
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
 
     <div class="chart-wrap">
       <h2>Dispersão: {{ pair.instrument_a.ticker }} vs {{ pair.instrument_b.ticker }}</h2>

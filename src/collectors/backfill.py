@@ -16,7 +16,7 @@ from src.db import get_session, init_db
 logger = logging.getLogger(__name__)
 
 # pares do motor de sinais (Fase 2)
-PAIR_TICKERS = ["TIO=F", "VALE3.SA", "BZ=F", "PETR4.SA", "DX-Y.NYB"]
+PAIR_TICKERS = ["TIO=F", "VALE3.SA", "BZ=F", "PETR4.SA", "DX-Y.NYB", "BBDC3.SA", "BBDC4.SA"]
 
 # cesta termômetro do case study SpaceX/bolha de IA (ver plan.json -> case_studies.spacex_ai_bubble)
 THERMOMETER_TICKERS = ["SMH", "NVDA", "CRWV", "DLR", "EQIX", "SPCX", "RKLB"]
@@ -30,7 +30,7 @@ BCB_SERIES = {
 }
 
 
-def collect(period: str = "2y", years: int = 5) -> list[PriceRecord]:
+def collect(period: str = "10y", years: int = 20) -> list[PriceRecord]:
     records = yfinance_source.fetch_history(YFINANCE_TICKERS, period=period)
     for ticker, codigo in BCB_SERIES.items():
         records.extend(bcb_source.fetch_history(ticker, codigo, years=years))

@@ -135,7 +135,7 @@
         },
         "odata_endpoint": "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/",
         "python_lib": "python-bcb (PyPI)",
-        "notes": "Verificado ao vivo (USD~5,15, EUR~5,88 no momento da pesquisa). Fonte primária recomendada para USD/BRL e EUR/BRL oficiais."
+        "notes": "Verificado ao vivo (USD~5,15, EUR~5,88 no momento da pesquisa). Fonte primária recomendada para USD/BRL e EUR/BRL oficiais. Séries diárias (PTAX) têm teto de 10 anos por consulta no endpoint de intervalo — backfill pagina em blocos de 10 anos automaticamente para janelas maiores."
       },
       {
         "name": "Frankfurter.app",
@@ -227,6 +227,15 @@
             "Margem de refino",
             "Risco de governança/política (empresa estatal)"
           ]
+        },
+        {
+          "pair": "Bradesco ON (BBDC3.SA) vs Bradesco PN (BBDC4.SA)",
+          "expected_relationship": "Correlação quase perfeita (mesma empresa, mesmos fundamentos) — não é um par commodity-empresa, mas serve de 'controle': cointegração deveria ser a mais limpa/estável de todos os pares monitorados.",
+          "modulating_factors": [
+            "Diferença estrutural de liquidez entre ON e PN",
+            "Prioridade de dividendos da PN vs direito a voto da ON",
+            "Eventos societários (conversão de classes, buyback seletivo)"
+          ]
         }
       ],
       "note": "A distância entre o comportamento 'teórico' (beta implícito por regressão) e o comportamento observado no curto prazo é o sinal de oportunidade — desde que os fatores modulantes acima não expliquem integralmente o desvio."
@@ -303,6 +312,11 @@
       "name": "Heatmap de força de sinal",
       "chart_type": "matriz pares x tempo, colorida por |z-score|",
       "purpose": "Visão panorâmica diária de quais pares estão mais esticados no momento."
+    },
+    {
+      "name": "Painel de resumo + episódios de oportunidade",
+      "chart_type": "cards de resumo (valor atual de cada ativo, spread, z-score, desvio-padrão, oportunidade estimada em %) + tabela histórica",
+      "purpose": "Contextualiza cada par: mostra a média histórica e o valor atual lado a lado, estima quanto o ativo A precisaria variar para o spread reverter à média, e lista os episódios passados em que |z-score| >= 2 até normalizar (<= 0.5) — com data de abertura/fechamento, pico do z-score, e o valor de cada ativo em cada ponta do episódio (inclusive episódios ainda em andamento)."
     }
   ],
   "case_studies": {
@@ -580,6 +594,23 @@
       ],
       "deliverables": [
         "serviço systemd + cron configurados e documentados"
+      ]
+    },
+    {
+      "phase": 6,
+      "name": "Melhorias: histórico maior, novo par, contexto histórico por par",
+      "goal": "Tornar cada gráfico de par mais interpretável e cobrir mais história",
+      "tasks": [
+        "Estender backfill: yfinance de 2y para 10y; BCB de 5 para 20 anos (com paginação em blocos de 10 anos para séries diárias)",
+        "Adicionar par Bradesco ON (BBDC3.SA) vs PN (BBDC4.SA) como caso de cointegração 'controle'",
+        "engine.detect_opportunity_episodes(): identifica episódios históricos de abertura/fechamento de oportunidade (|z|>=2 até <=0.5)",
+        "Painel de resumo na página de par: valor atual de cada ativo, média/desvio-padrão do spread, z-score atual, oportunidade estimada em %",
+        "Corrigir bug real encontrado: resp.json() podia estourar fora do try/except em bcb_source quando o BCB respondia 200 com corpo vazio, derrubando o backfill inteiro"
+      ],
+      "deliverables": [
+        "histórico de até 10-20 anos por instrumento",
+        "5º par (Bradesco ON/PN) monitorado",
+        "tabela de episódios de oportunidade em cada página de par"
       ]
     }
   ]

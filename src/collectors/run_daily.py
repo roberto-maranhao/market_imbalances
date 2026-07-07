@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 #     case_studies.spacex_ai_bubble) ---
 YFINANCE_ACOES = [
     "VALE3.SA", "PETR4.SA",  # pares commodity-empresa (minério, petróleo)
+    "BBDC3.SA", "BBDC4.SA",  # par ON/PN (mesma empresa, classes de ação diferentes)
     "SPCX", "RKLB", "ASTS", "GSAT", "VSAT", "STM",  # case study SpaceX
     "NVDA", "MSFT", "GOOGL", "AMZN", "META", "ORCL", "CRWV",  # bolha de IA: hyperscalers/chips
     "DLR", "EQIX", "IRM", "VST", "CEG", "GEV", "SMH",  # bolha de IA: termômetro (REITs, energia, ETF)

@@ -14,6 +14,10 @@ DEFAULT_CORR_WINDOW = 30
 DEFAULT_ALIGN_TOLERANCE_DAYS = 35  # cobre o pior caso: série mensal (BCB) vs diária
 
 
+DEFAULT_ENTER_THRESHOLD = 2.0  # |zscore| a partir do qual uma oportunidade é considerada "aberta"
+DEFAULT_EXIT_THRESHOLD = 0.5  # |zscore| abaixo do qual o spread é considerado "normalizado"
+
+
 @dataclass(frozen=True)
 class PairSignal:
     data: dt.date
@@ -23,6 +27,22 @@ class PairSignal:
     correlacao_movel: float | None
     coint_pvalue: float | None
     n_obs: int
+
+
+@dataclass(frozen=True)
+class OpportunityEpisode:
+    """Um período em que o spread se afastou da média (|zscore| >= enter_threshold) até
+    voltar a se normalizar (|zscore| <= exit_threshold) — ou, se ainda não normalizou, o
+    trecho aberto até a última data disponível (fim=None)."""
+
+    inicio: dt.date
+    fim: dt.date | None  # None = ainda aberta na última data da série
+    pico_zscore: float
+    a_inicio: float
+    a_fim: float
+    b_inicio: float
+    b_fim: float
+    duracao_dias: int
 
 
 def align_series(
@@ -116,3 +136,59 @@ def compute_pair_signal(
         coint_pvalue=coint_pvalue,
         n_obs=len(aligned),
     )
+
+
+def _as_date(index_value) -> dt.date:
+    return index_value.date() if hasattr(index_value, "date") else index_value
+
+
+def _build_episode(series: pd.DataFrame, start_idx, end_idx, peak_zscore: float, still_open: bool) -> OpportunityEpisode:
+    return OpportunityEpisode(
+        inicio=_as_date(start_idx),
+        fim=None if still_open else _as_date(end_idx),
+        pico_zscore=float(peak_zscore),
+        a_inicio=float(series.loc[start_idx, "a"]),
+        a_fim=float(series.loc[end_idx, "a"]),
+        b_inicio=float(series.loc[start_idx, "b"]),
+        b_fim=float(series.loc[end_idx, "b"]),
+        duracao_dias=(end_idx - start_idx).days,
+    )
+
+
+def detect_opportunity_episodes(
+    series: pd.DataFrame,
+    enter_threshold: float = DEFAULT_ENTER_THRESHOLD,
+    exit_threshold: float = DEFAULT_EXIT_THRESHOLD,
+) -> list[OpportunityEpisode]:
+    """Varre a série de z-score (coluna 'zscore' de compute_pair_series) e monta a lista de
+    episódios históricos em que o spread se esticou além de enter_threshold desvios-padrão e
+    depois voltou para dentro de exit_threshold. Mais recente primeiro. Se o último ponto da
+    série ainda estiver com |zscore| >= enter_threshold, o episódio aparece com fim=None
+    ('em andamento') e os valores 'fim' refletem a última observação disponível."""
+    episodes: list[OpportunityEpisode] = []
+    in_episode = False
+    start_idx = None
+    peak_zscore = 0.0
+
+    for idx, zscore in series["zscore"].items():
+        if pd.isna(zscore):
+            continue
+        if not in_episode:
+            if abs(zscore) >= enter_threshold:
+                in_episode = True
+                start_idx = idx
+                peak_zscore = zscore
+        else:
+            if abs(zscore) > abs(peak_zscore):
+                peak_zscore = zscore
+            if abs(zscore) <= exit_threshold:
+                episodes.append(_build_episode(series, start_idx, idx, peak_zscore, still_open=False))
+                in_episode = False
+                start_idx = None
+                peak_zscore = 0.0
+
+    if in_episode:
+        episodes.append(_build_episode(series, start_idx, series.index[-1], peak_zscore, still_open=True))
+
+    episodes.reverse()
+    return episodes
