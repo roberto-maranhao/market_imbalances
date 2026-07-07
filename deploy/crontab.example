@@ -1,0 +1,10 @@
+# Exemplo de crontab para o Raspberry Pi. Instalar com: crontab -e (usuário que roda o app)
+# Ajuste o caminho /home/pi/market_imbalances para o do seu clone do repositório.
+#
+# 20h (depois do fechamento de B3 e NYSE, e do PTAX do BCB): coleta os dados do dia,
+# depois recalcula os sinais (cointegração/z-score/correlação) em cima do que foi coletado.
+0 20 * * * cd /home/pi/market_imbalances && .venv/bin/python -m src.collectors.run_daily >> var/log/collect.log 2>&1
+15 20 * * * cd /home/pi/market_imbalances && .venv/bin/python -m src.signals.run_daily >> var/log/signals.log 2>&1
+
+# Backfill (src.collectors.backfill) NÃO entra aqui — é para rodar manualmente, uma vez ou
+# esporadicamente, não todo dia (busca anos de histórico, desnecessário repetir diariamente).

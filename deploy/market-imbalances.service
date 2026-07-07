@@ -1,0 +1,16 @@
+[Unit]
+Description=market_imbalances dashboard (gunicorn)
+After=network.target
+
+[Service]
+# Ajuste User/Group e os caminhos abaixo para o seu Raspberry Pi.
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/market_imbalances
+EnvironmentFile=/home/pi/market_imbalances/.env
+ExecStart=/home/pi/market_imbalances/.venv/bin/gunicorn --bind ${FLASK_HOST}:${FLASK_PORT} --workers 2 src.web.wsgi:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
