@@ -1,0 +1,13 @@
+flask>=3.0
+gunicorn>=22.0
+sqlalchemy>=2.0
+python-dotenv>=1.0
+pandas>=2.0
+numpy>=1.26
+statsmodels>=0.14
+pykalman>=0.9.7
+yfinance>=0.2.40
+python-bcb>=0.3.0
+fredapi>=0.5.1
+requests>=2.31
+pytest>=8.0
