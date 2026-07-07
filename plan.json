@@ -488,7 +488,8 @@
     "App sem autenticação exposto via IP:porta: aceitável apenas em rede local/confiável; documentar que não deve ser exposto diretamente à internet sem VPN/reverse-proxy com auth.",
     "APIs com free tier (Finnhub, FRED, brapi.dev) exigem chave — guardar todas em .env, nunca commitar.",
     "O repo é AGPL-3.0: qualquer fork rodado como serviço de rede (mesmo sem redistribuir binário) deve disponibilizar o código-fonte modificado. Isso é intencional (mantém tudo aberto), mas documentar isso claramente para quem for hospedar uma variante.",
-    "Dashboard deve exibir um disclaimer visível (rodapé) reafirmando que não é recomendação de investimento e que os autores não se responsabilizam por perdas financeiras — mesmo texto do README.md."
+    "Dashboard deve exibir um disclaimer visível (rodapé) reafirmando que não é recomendação de investimento e que os autores não se responsabilizam por perdas financeiras — mesmo texto do README.md.",
+    "Dados de fundamentals via SEC EDGAR (capex/receita) misturam granularidades: algumas empresas reportam a tag relevante só anualmente (ex: Oracle, capex só no 10-K), outras trimestralmente. O motor de sinais (Fase 2) precisa normalizar por período antes de comparar capex/receita entre empresas."
   ],
   "roadmap": [
     {
