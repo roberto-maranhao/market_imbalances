@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="pt-BR">
+{% import "_macros.html" as m %}
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -43,6 +44,9 @@
       padding: 1.5rem 1rem; border-right: 1px solid #8883;
     }
     nav.sidebar a { text-decoration: none; font-weight: 600; }
+    nav.sidebar .sidebar-pairs { display: flex; flex-direction: column; gap: 0.5rem; }
+    nav.sidebar .sidebar-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.55; }
+    nav.sidebar .sidebar-pair { font-weight: 400; font-size: 0.85rem; opacity: 0.85; margin-left: 0.4rem; }
     main { flex: 1 1 auto; min-width: 0; max-width: 1600px; padding: 1.5rem 2rem 2rem; }
     table { border-collapse: collapse; width: 100%; }
     th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #8883; }
@@ -83,6 +87,23 @@
     .period-tabs a.active { opacity: 1; background: CanvasText; color: Canvas; border-color: CanvasText; }
     .period-tabs a:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
 
+    /* selo de veredito: hipótese teórica do par vs. hedge ratio observado no período atual */
+    .veredito-pill {
+      display: inline-block; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.02em;
+      padding: 0.25rem 0.65rem; border-radius: 999px; text-transform: uppercase;
+    }
+    .veredito-consistente { background: rgba(46, 160, 67, 0.16); color: #2ea043; }
+    .veredito-parcial { background: rgba(230, 126, 34, 0.16); color: #e67e22; }
+    .veredito-inconsistente { background: rgba(224, 49, 49, 0.16); color: #e03131; }
+    .veredito-diagnostico { background: rgba(136, 136, 136, 0.2); color: #888888; }
+
+    .interpretacao-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin: 1rem 0; }
+    @media (max-width: 700px) { .interpretacao-grid { grid-template-columns: 1fr; } }
+    .interpretacao-item { border: 1px solid #8883; border-radius: 8px; padding: 0.8rem 1rem; }
+    .interpretacao-item h4 { margin: 0 0 0.4rem; font-size: 0.85rem; }
+    .interpretacao-item p { margin: 0; font-size: 0.88rem; opacity: 0.9; }
+    .sintese-box { border: 1px solid #8886; border-radius: 8px; padding: 0.9rem 1.1rem; margin: 1rem 0; background: #8881; }
+
     @media (max-width: 800px) {
       .layout { flex-direction: column; }
       nav.sidebar {
@@ -97,6 +118,13 @@
   <div class="layout">
     <nav class="sidebar">
       <a href="/">Painel de oportunidades</a>
+      <a href="/metodologia">Metodologia</a>
+      <div class="sidebar-pairs">
+        <span class="sidebar-label">Pares monitorados</span>
+        {% for p in sidebar_pairs %}
+          <a href="/pair/{{ p.id }}" class="sidebar-pair">{{ m.tkr(p.ticker_a) }} / {{ m.tkr(p.ticker_b) }}</a>
+        {% endfor %}
+      </div>
       <a href="/cambio">Decomposição cambial</a>
       <a href="/case-study/ia-bubble">Case study: SpaceX / bolha de IA</a>
     </nav>

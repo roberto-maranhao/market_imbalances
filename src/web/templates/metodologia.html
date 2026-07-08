@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Metodologia — market_imbalances{% endblock %}
+{% block content %}
+  <h1>Metodologia</h1>
+  <p>
+    Este projeto assume que preços de ativos com uma relação econômica real tendem a se mover de
+    forma previsível no longo prazo (<strong>cointegração</strong>), e que desvios temporários
+    dessa relação — desde que ela continue válida — tendem a reverter. A tarefa central é
+    (a) formalizar a relação esperada, (b) medir o desvio atual, e (c) distinguir "desvio
+    temporário que reverte" de "quebra estrutural da relação".
+  </p>
+
+  <h2>Os quatro indicadores</h2>
+  <p>
+    Todo par monitorado mostra os mesmos quatro números. Cada um tem uma origem teórica
+    específica — a leitura de cada par (nas páginas individuais) parte destas definições.
+  </p>
+  <div class="interpretacao-grid">
+    <div class="interpretacao-item">
+      <h4>Z-score</h4>
+      <p>
+        Desvio do spread atual frente à sua média histórica, em desvios-padrão. O spread é o
+        resíduo de uma regressão OLS entre os dois ativos. Vidyamurthy (2004) e Gatev, Goetzmann
+        &amp; Rouwenhorst (2006) formalizam a régua usada aqui: |z| ≥ 2 abre uma oportunidade,
+        |z| ≤ 0.5 marca o spread normalizado.
+      </p>
+    </div>
+    <div class="interpretacao-item">
+      <h4>Correlação móvel</h4>
+      <p>
+        Correlação simples entre os preços brutos dos dois ativos, numa janela móvel — não entra
+        na conta do z-score, é um check de sanidade independente. Do &amp; Faff (2010) mostram que
+        correlação em queda estrutural é sinal de "risco de sincronização": a relação pode estar
+        se rompendo, o que torna um z-score esticado menos confiável.
+      </p>
+    </div>
+    <div class="interpretacao-item">
+      <h4>P-valor de cointegração</h4>
+      <p>
+        Do teste de Engle &amp; Granger (1987): testa se o spread é estacionário (reverte à
+        média) no longo prazo, não só se os preços "andam parecido" no curto prazo. P-valor baixo
+        (&lt; 0,05) é evidência de que a reversão é real; p-valor alto significa que não dá pra
+        rejeitar "esse par não reverte" — um z-score esticado nesse caso é bem menos confiável.
+      </p>
+    </div>
+    <div class="interpretacao-item">
+      <h4>Hedge ratio</h4>
+      <p>
+        Coeficiente angular (β) da mesma regressão OLS: quanto o ativo A historicamente se move
+        para cada unidade de movimento do ativo B. Aqui é sempre estático (uma regressão por
+        período) — Chan (2013) descreve o filtro de Kalman como alternativa dinâmica, que
+        atualiza o hedge ratio a cada observação; este projeto ainda não implementa isso
+        (biblioteca <code>pykalman</code> está no requirements.txt para uma evolução futura).
+      </p>
+    </div>
+  </div>
+
+  <h2>Hipóteses por par</h2>
+  <p>
+    Cada par tem uma hipótese formal sobre o hedge ratio esperado, testável contra o valor ao
+    vivo. O veredito abaixo usa o histórico completo disponível ("Máx") — nas páginas
+    individuais, ele é recalculado para o período selecionado.
+  </p>
+  {% if not hipoteses %}
+    <p><em>Sem pares ativos com dados suficientes ainda.</em></p>
+  {% else %}
+    {% for h in hipoteses %}
+      {% set interp = h.interpretacao %}
+      <div class="interpretacao-item" style="margin-bottom:1rem;">
+        <h4>
+          <a href="/pair/{{ h.pair.id }}">{{ m.tkr(h.pair.instrument_a.ticker) }} / {{ m.tkr(h.pair.instrument_b.ticker) }}</a>
+          — {{ interp.titulo_hipotese }}
+        </h4>
+        <p>{{ h.pair.tese_teorica }}</p>
+        <p>
+          <span class="veredito-pill veredito-{{ interp.veredito_label }}">
+            {%- if interp.veredito_label == 'consistente' -%}
+              Consistente com a hipótese
+            {%- elif interp.veredito_label == 'parcial' -%}
+              Parcialmente consistente
+            {%- elif interp.veredito_label == 'inconsistente' -%}
+              Inconsistente neste período
+            {%- else -%}
+              Leitura diagnóstica
+            {%- endif -%}
+          </span>
+          <span class="note" style="display:inline;">
+            hedge ratio = {{ "%.3f"|format(h.hedge_ratio) }} ·
+            z-score = {{ "%.2f"|format(h.zscore) if h.zscore is not none else "n/a" }} ·
+            p-valor cointegração = {{ "%.3f"|format(h.coint_pvalue) if h.coint_pvalue is not none else "n/a" }}
+          </span>
+        </p>
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <h2>Sobre o filtro de período</h2>
+  <p>
+    As abas de período (1m/6m/1a/5a/10a/Máx) recalculam a análise inteira — não é zoom sobre os
+    números do histórico completo, porque hedge ratio, z-score, correlação e p-valor de
+    cointegração dependem da janela usada para calculá-los. Isso significa que o veredito de um
+    par pode mudar entre períodos: no par TIO=F/VALE3.SA, por exemplo, o hedge ratio observado
+    foi 1,118 (Máx) → 0,083 (1 ano) → −0,070 (6 meses) — chega a trocar de sinal. Antes de
+    descartar (ou confiar n)uma hipótese, vale checar mais de um período.
+  </p>
+
+  <h2>Referências</h2>
+  <ul style="padding-left:1.15rem;">
+    {% for ref in references.values() %}
+      <li style="margin-bottom:0.6rem;">
+        {{ ref.citacao }}
+        <br><span class="note" style="display:inline;">{{ ref.resumo }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+{% endblock %}

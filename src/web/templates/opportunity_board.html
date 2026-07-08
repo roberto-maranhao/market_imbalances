@@ -5,6 +5,23 @@
   <h1>Painel de oportunidades</h1>
   <p>Pares monitorados, ordenados por |z-score| do spread (maior desvio primeiro).</p>
 
+  <div class="sintese-box">
+    <p style="margin:0 0 0.5rem;">
+      A premissa: ativos com uma relação econômica real tendem a ser <strong>cointegrados</strong>
+      (Engle &amp; Granger, 1987) — desvios entre eles revertem à média no longo prazo, mesmo que
+      cada série isolada não reverta. O z-score mede esse desvio em desvios-padrão; a correlação
+      móvel e o p-valor de cointegração dizem se dá pra confiar nesse desvio como oportunidade,
+      ou se a relação está quebrando (Do &amp; Faff, 2010).
+    </p>
+    <p style="margin:0;">
+      {% if total_pares %}
+        <strong>{{ coint_significativos }} de {{ total_pares }}</strong> pares monitorados têm
+        cointegração estatisticamente significativa (p &lt; 0,05) na última leitura —
+      {% endif %}
+      <a href="/metodologia">ver o referencial teórico completo e a hipótese de cada par →</a>
+    </p>
+  </div>
+
   {% if not rows %}
     <p><em>Nenhum par ativo ainda. Rode <code>python -m src.signals.run_daily</code> depois de coletar dados.</em></p>
   {% else %}

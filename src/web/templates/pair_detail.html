@@ -56,6 +56,29 @@
       leitura simples do z-score em unidades do próprio ativo, não uma previsão.
     </p>
 
+    <h2>Leitura à luz da teoria{% if interpretacao.titulo_hipotese %} — {{ interpretacao.titulo_hipotese }}{% endif %}</h2>
+    <p>
+      <span class="veredito-pill veredito-{{ interpretacao.veredito_label }}">
+        {%- if interpretacao.veredito_label == 'consistente' -%}
+          Consistente com a hipótese
+        {%- elif interpretacao.veredito_label == 'parcial' -%}
+          Parcialmente consistente
+        {%- elif interpretacao.veredito_label == 'inconsistente' -%}
+          Inconsistente neste período
+        {%- else -%}
+          Leitura diagnóstica
+        {%- endif -%}
+      </span>
+    </p>
+    <div class="interpretacao-grid">
+      <div class="interpretacao-item"><h4>Z-score</h4><p>{{ interpretacao.zscore_texto }}</p></div>
+      <div class="interpretacao-item"><h4>Correlação móvel</h4><p>{{ interpretacao.correlacao_texto }}</p></div>
+      <div class="interpretacao-item"><h4>P-valor de cointegração</h4><p>{{ interpretacao.cointegracao_texto }}</p></div>
+      <div class="interpretacao-item"><h4>Hedge ratio</h4><p>{{ interpretacao.hedge_ratio_texto }}</p></div>
+    </div>
+    <div class="sintese-box"><strong>Base da recomendação:</strong> {{ interpretacao.sintese }}</div>
+    <p class="note">Ver o <a href="/metodologia">referencial teórico completo</a> — citações e hipótese de cada par.</p>
+
     <div class="chart-wrap">
       <h2>Valores originais: {{ m.tkr(pair.instrument_a.ticker) }} vs {{ m.tkr(pair.instrument_b.ticker) }}</h2>
       <div class="chart-canvas" id="originalChart"></div>

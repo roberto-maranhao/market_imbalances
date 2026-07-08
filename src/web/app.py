@@ -4,7 +4,12 @@ from flask import Flask, abort, render_template, request
 from src.config import FLASK_SECRET_KEY
 from src.db import get_session
 from src.models import Instrument, Pair
-from src.signals.engine import align_series, compute_pair_series, detect_opportunity_episodes
+from src.signals.engine import (
+    align_series,
+    compute_coint_pvalue,
+    compute_pair_series,
+    detect_opportunity_episodes,
+)
 from src.signals.loader import load_price_series
 from src.web.case_study import (
     capex_intensity_index,
@@ -22,7 +27,9 @@ from src.web.charts import (
     spread_zscore_figure,
     thermometer_figure,
 )
+from src.web.interpretation import interpret_pair
 from src.web.periods import PERIOD_OPTIONS, filter_period, period_link
+from src.web.references import REFERENCES
 from src.web.ticker_info import ticker_info
 
 # tickers usados na página de decomposição cambial (ver plan.json -> visualizations, "Decomposição cambial")
@@ -41,6 +48,21 @@ def create_app() -> Flask:
     app.jinja_env.globals["PERIOD_OPTIONS"] = PERIOD_OPTIONS
     app.jinja_env.globals["period_link"] = period_link
 
+    @app.context_processor
+    def inject_sidebar_pairs():
+        # menu lateral lista os pares monitorados em toda página — uma query pequena (tabela
+        # de ~5 linhas), roda em toda request, não vale a pena cada rota passar isso na mão.
+        session = get_session()
+        try:
+            pairs = session.query(Pair).filter_by(ativo=True).order_by(Pair.id).all()
+            sidebar_pairs = [
+                {"id": p.id, "ticker_a": p.instrument_a.ticker, "ticker_b": p.instrument_b.ticker}
+                for p in pairs
+            ]
+        finally:
+            session.close()
+        return {"sidebar_pairs": sidebar_pairs}
+
     @app.route("/")
     def opportunity_board():
         session = get_session()
@@ -51,7 +73,54 @@ def create_app() -> Flask:
                 latest = max(pair.signals, key=lambda s: s.data, default=None)
                 rows.append({"pair": pair, "signal": latest})
             rows.sort(key=lambda r: abs(r["signal"].zscore) if r["signal"] and r["signal"].zscore is not None else -1, reverse=True)
-            return render_template("opportunity_board.html", rows=rows)
+
+            # estatística ao vivo pro resumo teórico do painel — reaproveita os Signal já
+            # carregados, sem query extra (ver objetivo 2: resumo da teoria no painel).
+            com_coint = [r for r in rows if r["signal"] and r["signal"].coint_pvalue is not None]
+            coint_significativos = sum(1 for r in com_coint if r["signal"].coint_pvalue < 0.05)
+
+            return render_template(
+                "opportunity_board.html",
+                rows=rows,
+                total_pares=len(rows),
+                coint_significativos=coint_significativos,
+            )
+        finally:
+            session.close()
+
+    @app.route("/metodologia")
+    def metodologia():
+        session = get_session()
+        try:
+            pairs = session.query(Pair).filter_by(ativo=True).order_by(Pair.id).all()
+            hipoteses = []
+            for pair in pairs:
+                ticker_a, ticker_b = pair.instrument_a.ticker, pair.instrument_b.ticker
+                series_a = load_price_series(session, pair.instrument_a)
+                series_b = load_price_series(session, pair.instrument_b)
+                if series_a.empty or series_b.empty:
+                    continue
+                aligned = align_series(series_a, series_b)
+                if len(aligned) < 2:
+                    continue
+
+                series = compute_pair_series(aligned)
+                last = series.iloc[-1]
+                zscore = float(last["zscore"]) if pd.notna(last["zscore"]) else None
+                coint_pvalue = compute_coint_pvalue(aligned)
+                hedge_ratio = float(last["hedge_ratio"])
+
+                hipoteses.append({
+                    "pair": pair,
+                    "hedge_ratio": hedge_ratio,
+                    "zscore": zscore,
+                    "coint_pvalue": coint_pvalue,
+                    "interpretacao": interpret_pair(
+                        ticker_a, ticker_b, hedge_ratio, zscore, series["correlacao_movel"], coint_pvalue
+                    ),
+                })
+
+            return render_template("metodologia.html", hipoteses=hipoteses, references=REFERENCES)
         finally:
             session.close()
 
@@ -111,6 +180,11 @@ def create_app() -> Flask:
             original_fig, original_calibrado = original_values_figure(
                 series, pair.instrument_a.ticker, pair.instrument_b.ticker, hedge_ratio, intercept, episodes
             )
+            coint_pvalue = compute_coint_pvalue(aligned)
+            interpretacao = interpret_pair(
+                pair.instrument_a.ticker, pair.instrument_b.ticker,
+                hedge_ratio, zscore_atual, series["correlacao_movel"], coint_pvalue,
+            )
 
             return render_template(
                 "pair_detail.html",
@@ -120,6 +194,8 @@ def create_app() -> Flask:
                 summary=summary,
                 episodes=episodes,
                 periodo=periodo,
+                coint_pvalue=coint_pvalue,
+                interpretacao=interpretacao,
                 original_fig=original_fig,
                 original_calibrado=original_calibrado,
                 spread_fig=spread_zscore_figure(series, episodes),

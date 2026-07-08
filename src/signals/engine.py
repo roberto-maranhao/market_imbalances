@@ -105,6 +105,17 @@ def compute_pair_series(aligned: pd.DataFrame, corr_window: int = DEFAULT_CORR_W
     )
 
 
+def compute_coint_pvalue(aligned: pd.DataFrame) -> float | None:
+    """P-valor do teste de cointegração de Engle-Granger (Engle & Granger, 1987) entre as
+    colunas 'a'/'b' de um DataFrame já alinhado. None se o teste falhar (ex: poucas
+    observações) — quem chama decide como tratar a ausência de sinal."""
+    try:
+        _, coint_pvalue, _ = coint(aligned["a"].to_numpy(), aligned["b"].to_numpy())
+        return float(coint_pvalue)
+    except Exception:
+        return None
+
+
 def compute_pair_signal(
     aligned: pd.DataFrame,
     corr_window: int = DEFAULT_CORR_WINDOW,
@@ -117,12 +128,7 @@ def compute_pair_signal(
 
     series = compute_pair_series(aligned, corr_window=corr_window)
     last = series.iloc[-1]
-
-    try:
-        _, coint_pvalue, _ = coint(aligned["a"].to_numpy(), aligned["b"].to_numpy())
-        coint_pvalue = float(coint_pvalue)
-    except Exception:
-        coint_pvalue = None
+    coint_pvalue = compute_coint_pvalue(aligned)
 
     latest_index = aligned.index[-1]
     latest_date = latest_index.date() if hasattr(latest_index, "date") else latest_index

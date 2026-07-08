@@ -3,7 +3,7 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 
-from src.signals.engine import align_series, compute_pair_series, compute_pair_signal
+from src.signals.engine import align_series, compute_coint_pvalue, compute_pair_series, compute_pair_signal
 
 
 def test_align_series_matches_monthly_to_nearest_prior_daily():
@@ -50,6 +50,28 @@ def test_compute_pair_signal_recovers_known_hedge_ratio():
     assert result.correlacao_movel is not None
     assert result.coint_pvalue is not None
     assert result.coint_pvalue < 0.10  # séries claramente cointegradas por construção
+
+
+def test_compute_coint_pvalue_matches_pair_signal():
+    rng = np.random.default_rng(42)
+    n = 120
+    b_values = np.cumsum(rng.normal(0, 1, n)) + 100
+    a_values = 2.0 * b_values + 10 + rng.normal(0, 0.5, n)
+    index = pd.date_range("2026-01-01", periods=n, freq="D")
+    aligned = pd.DataFrame({"a": a_values, "b": b_values}, index=index)
+
+    pvalue = compute_coint_pvalue(aligned)
+    signal = compute_pair_signal(aligned)
+
+    assert pvalue is not None
+    assert pvalue == signal.coint_pvalue
+
+
+def test_compute_coint_pvalue_returns_none_on_failure():
+    # uma única observação faz o teste de cointegração estourar (não há graus de liberdade)
+    aligned = pd.DataFrame({"a": [1.0], "b": [2.0]}, index=pd.date_range("2026-01-01", periods=1))
+
+    assert compute_coint_pvalue(aligned) is None
 
 
 def test_compute_pair_signal_returns_none_below_min_obs():
