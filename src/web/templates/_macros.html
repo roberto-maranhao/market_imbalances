@@ -1,0 +1,18 @@
+{% macro tkr(ticker) -%}
+{%- set info = ticker_info(ticker) -%}
+{%- if info -%}
+<span class="tkr-tip" tabindex="0">{{ ticker }}<span class="tkr-tip-bubble"><strong>{{ info.nome }}</strong><br>{{ info.descricao }}<br><em>Fonte: {{ info.fonte }}</em></span></span>
+{%- else -%}
+{{ ticker }}
+{%- endif -%}
+{%- endmacro %}
+
+{# Abas de período: cada clique navega pra mesma página com ?param_name=chave, recalculando
+   a análise inteira pro período escolhido (não é zoom — ver src/web/periods.py). #}
+{% macro period_tabs(current, param_name='periodo') %}
+<nav class="period-tabs">
+  {% for key, label, _days in PERIOD_OPTIONS %}
+    <a href="{{ period_link(request.args.to_dict(), param_name, key) }}" class="{{ 'active' if key == current else '' }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+{% endmacro %}

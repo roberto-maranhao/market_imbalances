@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Painel de oportunidades — market_imbalances{% endblock %}
 {% block content %}
   <h1>Painel de oportunidades</h1>
@@ -23,7 +24,7 @@
       {% for row in rows %}
         {% set s = row.signal %}
         <tr>
-          <td><a href="/pair/{{ row.pair.id }}">{{ row.pair.instrument_a.ticker }} / {{ row.pair.instrument_b.ticker }}</a></td>
+          <td><a href="/pair/{{ row.pair.id }}">{{ m.tkr(row.pair.instrument_a.ticker) }} / {{ m.tkr(row.pair.instrument_b.ticker) }}</a></td>
           <td class="tese">{{ row.pair.tese_teorica or "—" }}</td>
           {% if s %}
             <td>{{ s.data }}</td>
