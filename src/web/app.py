@@ -1,5 +1,5 @@
 import pandas as pd
-from flask import Flask, abort, render_template
+from flask import Flask, abort, render_template, request
 
 from src.config import FLASK_SECRET_KEY
 from src.db import get_session
@@ -11,14 +11,19 @@ from src.web.case_study import (
     latest_snapshot_table,
     load_hyperscaler_series,
     thermometer_basket_index,
+    thermometer_raw_series,
 )
 from src.web.charts import (
-    line_dataset,
-    rebased_multi_series_chart,
-    rolling_correlation_chart,
-    scatter_chart,
-    spread_zscore_chart,
+    line_figure,
+    original_values_figure,
+    rebased_multi_series_figure,
+    rolling_correlation_figure,
+    scatter_figure,
+    spread_zscore_figure,
+    thermometer_figure,
 )
+from src.web.periods import PERIOD_OPTIONS, filter_period, period_link
+from src.web.ticker_info import ticker_info
 
 # tickers usados na página de decomposição cambial (ver plan.json -> visualizations, "Decomposição cambial")
 CURRENCY_DECOMPOSITION_TICKERS = {
@@ -32,6 +37,9 @@ CURRENCY_DECOMPOSITION_TICKERS = {
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config["SECRET_KEY"] = FLASK_SECRET_KEY
+    app.jinja_env.globals["ticker_info"] = ticker_info
+    app.jinja_env.globals["PERIOD_OPTIONS"] = PERIOD_OPTIONS
+    app.jinja_env.globals["period_link"] = period_link
 
     @app.route("/")
     def opportunity_board():
@@ -55,14 +63,16 @@ def create_app() -> Flask:
             if pair is None:
                 abort(404)
 
+            periodo = request.args.get("periodo", "max")
+
             series_a = load_price_series(session, pair.instrument_a)
             series_b = load_price_series(session, pair.instrument_b)
             if series_a.empty or series_b.empty:
-                return render_template("pair_detail.html", pair=pair, has_data=False)
+                return render_template("pair_detail.html", pair=pair, has_data=False, periodo=periodo)
 
-            aligned = align_series(series_a, series_b)
+            aligned = filter_period(align_series(series_a, series_b), periodo)
             if len(aligned) < 2:
-                return render_template("pair_detail.html", pair=pair, has_data=False)
+                return render_template("pair_detail.html", pair=pair, has_data=False, periodo=periodo)
 
             series = compute_pair_series(aligned)
             last = series.iloc[-1]
@@ -81,6 +91,9 @@ def create_app() -> Flask:
             spread_medio = float(series["spread"].mean())
             spread_medio = 0.0 if abs(spread_medio) < 1e-6 else spread_medio
 
+            hedge_ratio = float(last["hedge_ratio"])
+            intercept = float(last["intercept"])
+
             summary = {
                 "data_atual": series.index[-1].date(),
                 "a_atual": float(last["a"]),
@@ -90,9 +103,14 @@ def create_app() -> Flask:
                 "desvio_padrao": std_spread,
                 "zscore_atual": zscore_atual,
                 "oportunidade_pct": oportunidade_pct,
+                "hedge_ratio": hedge_ratio,
+                "intercept": intercept,
             }
 
             episodes = detect_opportunity_episodes(series)
+            original_fig, original_calibrado = original_values_figure(
+                series, pair.instrument_a.ticker, pair.instrument_b.ticker, hedge_ratio, intercept, episodes
+            )
 
             return render_template(
                 "pair_detail.html",
@@ -101,9 +119,12 @@ def create_app() -> Flask:
                 n_obs=len(series),
                 summary=summary,
                 episodes=episodes,
-                spread_chart=spread_zscore_chart(series),
-                scatter=scatter_chart(series, pair.instrument_a.ticker, pair.instrument_b.ticker),
-                correlation_chart=rolling_correlation_chart(series),
+                periodo=periodo,
+                original_fig=original_fig,
+                original_calibrado=original_calibrado,
+                spread_fig=spread_zscore_figure(series, episodes),
+                scatter_fig=scatter_figure(series, pair.instrument_a.ticker, pair.instrument_b.ticker, hedge_ratio, intercept),
+                correlation_fig=rolling_correlation_figure(series),
             )
         finally:
             session.close()
@@ -112,17 +133,18 @@ def create_app() -> Flask:
     def currency_decomposition():
         session = get_session()
         try:
+            periodo = request.args.get("periodo", "max")
             series_by_label = {}
             for label, ticker in CURRENCY_DECOMPOSITION_TICKERS.items():
                 instrument = session.query(Instrument).filter_by(ticker=ticker).one_or_none()
                 if instrument is None:
                     continue
-                series = load_price_series(session, instrument)
+                series = filter_period(load_price_series(session, instrument), periodo)
                 if not series.empty:
                     series_by_label[label] = series
 
-            chart = rebased_multi_series_chart(series_by_label) if series_by_label else None
-            return render_template("currency_decomposition.html", chart=chart)
+            fig = rebased_multi_series_figure(series_by_label) if series_by_label else None
+            return render_template("currency_decomposition.html", fig=fig, periodo=periodo)
         finally:
             session.close()
 
@@ -130,20 +152,34 @@ def create_app() -> Flask:
     def ai_bubble_case_study():
         session = get_session()
         try:
+            # "Última leitura por empresa" é sempre o dado mais recente disponível — não faz
+            # sentido recortá-la por período, então usa hyperscaler_series sem filtro.
             hyperscaler_series = load_hyperscaler_series(session)
             snapshot = latest_snapshot_table(hyperscaler_series)
 
-            capex_index = capex_intensity_index(hyperscaler_series)
-            capex_chart = line_dataset(capex_index, "Capex agregado / Receita agregada") if not capex_index.empty else None
+            capex_periodo = request.args.get("capex_periodo", "max")
+            hyperscaler_series_periodo = {
+                ticker: {metric: filter_period(serie, capex_periodo) for metric, serie in metrics.items()}
+                for ticker, metrics in hyperscaler_series.items()
+            }
+            capex_index = capex_intensity_index(hyperscaler_series_periodo)
+            capex_fig = line_figure(capex_index, "Capex agregado / Receita agregada", y_tickformat=".0%") if not capex_index.empty else None
 
-            basket_index = thermometer_basket_index(session)
-            basket_chart = line_dataset(basket_index, "Cesta termômetro (retorno acumulado, base 100)") if not basket_index.empty else None
+            cesta_periodo = request.args.get("cesta_periodo", "max")
+            thermometer_series = {
+                ticker: filter_period(serie, cesta_periodo)
+                for ticker, serie in thermometer_raw_series(session).items()
+            }
+            basket_index = thermometer_basket_index(thermometer_series)
+            basket_fig = thermometer_figure(thermometer_series, basket_index) if not basket_index.empty else None
 
             return render_template(
                 "ai_bubble_case_study.html",
                 snapshot=snapshot,
-                capex_chart=capex_chart,
-                basket_chart=basket_chart,
+                capex_fig=capex_fig,
+                capex_periodo=capex_periodo,
+                basket_fig=basket_fig,
+                cesta_periodo=cesta_periodo,
             )
         finally:
             session.close()

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Decomposição cambial — market_imbalances{% endblock %}
 {% block content %}
   <h1>Decomposição cambial</h1>
@@ -9,19 +10,20 @@
     força global do dólar vs. idiossincrático do Real vs. commodities.
   </p>
 
-  {% if not chart or not chart.datasets %}
+  {{ m.period_tabs(periodo) }}
+  <p class="note">
+    Trocar de período reancora o rebase (base 100) no primeiro valor <em>dessa janela</em> pra
+    cada série, não do histórico completo — recalcula, não dá zoom.
+  </p>
+
+  {% if not fig %}
     <p><em>Dados insuficientes ainda. Rode o backfill/coleta primeiro.</em></p>
   {% else %}
     <div class="chart-wrap">
-      <canvas id="currencyChart" height="320"></canvas>
+      <div class="chart-canvas" id="currencyChart"></div>
     </div>
     <script>
-      const chartData = {{ chart | tojson }};
-      new Chart(document.getElementById('currencyChart'), {
-        type: 'line',
-        data: { labels: chartData.labels, datasets: chartData.datasets.map(ds => ({ ...ds, pointRadius: 1 })) },
-        options: { animation: false, spanGaps: true, scales: { x: { ticks: { maxTicksLimit: 12 } } } },
-      });
+      renderPlot('currencyChart', {{ fig | tojson }});
     </script>
   {% endif %}
 {% endblock %}

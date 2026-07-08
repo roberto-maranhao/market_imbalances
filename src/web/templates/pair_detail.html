@@ -1,22 +1,30 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}{{ pair.instrument_a.ticker }} / {{ pair.instrument_b.ticker }} — market_imbalances{% endblock %}
 {% block content %}
   <p><a href="/">&larr; painel de oportunidades</a></p>
-  <h1>{{ pair.instrument_a.ticker }} / {{ pair.instrument_b.ticker }}</h1>
+  <h1>{{ m.tkr(pair.instrument_a.ticker) }} / {{ m.tkr(pair.instrument_b.ticker) }}</h1>
   <p>{{ pair.tese_teorica or "Sem tese registrada." }}</p>
 
+  {{ m.period_tabs(periodo) }}
+  <p class="note">
+    Trocar de período recalcula a análise inteira (hedge ratio, spread, z-score, correlação,
+    episódios) só com os dados dessa janela — não é um zoom sobre os números do histórico
+    completo.
+  </p>
+
   {% if not has_data %}
-    <p><em>Histórico insuficiente para calcular sinais deste par ainda.</em></p>
+    <p><em>Histórico insuficiente para calcular sinais deste par nessa janela.</em></p>
   {% else %}
     <p>{{ n_obs }} observações alinhadas · última data: {{ summary.data_atual }}</p>
 
     <div class="summary-grid">
       <div class="summary-card">
-        <span class="summary-label">{{ pair.instrument_a.ticker }} (atual)</span>
+        <span class="summary-label">{{ m.tkr(pair.instrument_a.ticker) }} (atual)</span>
         <span class="summary-value">{{ "%.4g"|format(summary.a_atual) }}</span>
       </div>
       <div class="summary-card">
-        <span class="summary-label">{{ pair.instrument_b.ticker }} (atual)</span>
+        <span class="summary-label">{{ m.tkr(pair.instrument_b.ticker) }} (atual)</span>
         <span class="summary-value">{{ "%.4g"|format(summary.b_atual) }}</span>
       </div>
       <div class="summary-card">
@@ -49,8 +57,39 @@
     </p>
 
     <div class="chart-wrap">
+      <h2>Valores originais: {{ m.tkr(pair.instrument_a.ticker) }} vs {{ m.tkr(pair.instrument_b.ticker) }}</h2>
+      <div class="chart-canvas" id="originalChart"></div>
+    </div>
+    <p class="note">
+      Relação ajustada (regressão OLS de {{ pair.instrument_a.ticker }} contra
+      {{ pair.instrument_b.ticker }}, usando todo o histórico alinhado acima):
+      <strong>
+        {{ pair.instrument_a.ticker }} ≈ {{ "%.4g"|format(summary.hedge_ratio) }} ×
+        {{ pair.instrument_b.ticker }} {{ "+" if summary.intercept >= 0 else "−" }}
+        {{ "%.4g"|format(summary.intercept|abs) }}
+      </strong>. O <strong>spread</strong> é o que sobra dessa conta em cada data (o resíduo:
+      valor real de {{ pair.instrument_a.ticker }} menos o previsto pela equação); o
+      <strong>z-score</strong> é esse resíduo medido em desvios-padrão.
+      {% if original_calibrado %}
+        Os dois eixos do gráfico abaixo não são escalas independentes: o eixo direito
+        ({{ pair.instrument_b.ticker }}) foi calibrado a partir da própria equação acima, então
+        sempre que as duas linhas se tocam na tela, o spread naquele ponto é ≈ 0 — não é
+        coincidência de escala.
+      {% else %}
+        O hedge ratio dessa equação é pequeno/grande demais perto da escala natural de
+        {{ pair.instrument_b.ticker }} para calibrar o eixo direito sem achatar a linha até
+        ficar ilegível — por isso, abaixo, cada eixo usa a escala natural do seu próprio ativo
+        (não são comparáveis ponto a ponto; a equação acima é que define a relação exata).
+      {% endif %}
+      As faixas
+      <span style="color:#e67e22">laranja</span> marcam episódios com z-score positivo (spread
+      esticado para cima) e as <span style="color:#3498db">azuis</span>, z-score negativo
+      (spread esticado para baixo) — mesmos episódios da tabela abaixo.
+    </p>
+
+    <div class="chart-wrap">
       <h2>Spread (z-score) com bandas de ±1σ / ±2σ</h2>
-      <canvas id="spreadChart" height="300"></canvas>
+      <div class="chart-canvas" id="spreadChart"></div>
     </div>
 
     <h2>Episódios de oportunidade (|z-score| ≥ 2, até normalizar em ≤ 0.5)</h2>
@@ -64,8 +103,8 @@
             <th>Fim</th>
             <th>Duração</th>
             <th>Pico z-score</th>
-            <th>{{ pair.instrument_a.ticker }} (início → fim)</th>
-            <th>{{ pair.instrument_b.ticker }} (início → fim)</th>
+            <th>{{ m.tkr(pair.instrument_a.ticker) }} (início → fim)</th>
+            <th>{{ m.tkr(pair.instrument_b.ticker) }} (início → fim)</th>
           </tr>
         </thead>
         <tbody>
@@ -90,53 +129,20 @@
     {% endif %}
 
     <div class="chart-wrap">
-      <h2>Dispersão: {{ pair.instrument_a.ticker }} vs {{ pair.instrument_b.ticker }}</h2>
-      <canvas id="scatterChart" height="300"></canvas>
+      <h2>Dispersão: {{ m.tkr(pair.instrument_a.ticker) }} vs {{ m.tkr(pair.instrument_b.ticker) }}</h2>
+      <div class="chart-canvas" id="scatterChart"></div>
     </div>
 
     <div class="chart-wrap">
       <h2>Correlação móvel</h2>
-      <canvas id="correlationChart" height="300"></canvas>
+      <div class="chart-canvas" id="correlationChart"></div>
     </div>
 
     <script>
-      const spreadData = {{ spread_chart | tojson }};
-      const scatterData = {{ scatter | tojson }};
-      const correlationData = {{ correlation_chart | tojson }};
-
-      new Chart(document.getElementById('spreadChart'), {
-        type: 'line',
-        data: {
-          labels: spreadData.labels,
-          datasets: spreadData.datasets.map(ds => ({
-            label: ds.label,
-            data: ds.data,
-            borderDash: ds.band ? [6, 4] : [],
-            borderColor: ds.band ? '#8888' : undefined,
-            pointRadius: ds.band ? 0 : 1,
-            borderWidth: ds.band ? 1 : 2,
-          })),
-        },
-        options: { animation: false, scales: { x: { ticks: { maxTicksLimit: 12 } } } },
-      });
-
-      new Chart(document.getElementById('scatterChart'), {
-        type: 'scatter',
-        data: { datasets: [{ label: scatterData.label_a + ' vs ' + scatterData.label_b, data: scatterData.points }] },
-        options: {
-          animation: false,
-          scales: {
-            x: { title: { display: true, text: scatterData.label_b } },
-            y: { title: { display: true, text: scatterData.label_a } },
-          },
-        },
-      });
-
-      new Chart(document.getElementById('correlationChart'), {
-        type: 'line',
-        data: { labels: correlationData.labels, datasets: correlationData.datasets },
-        options: { animation: false, scales: { y: { min: -1, max: 1 }, x: { ticks: { maxTicksLimit: 12 } } } },
-      });
+      renderPlot('originalChart', {{ original_fig | tojson }});
+      renderPlot('spreadChart', {{ spread_fig | tojson }});
+      renderPlot('scatterChart', {{ scatter_fig | tojson }});
+      renderPlot('correlationChart', {{ correlation_fig | tojson }});
     </script>
   {% endif %}
 {% endblock %}

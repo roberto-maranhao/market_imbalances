@@ -71,7 +71,7 @@ def test_compute_pair_series_matches_signal_on_last_row():
     signal = compute_pair_signal(aligned, corr_window=10)
 
     assert len(series) == n
-    assert list(series.columns) == ["a", "b", "spread", "zscore", "correlacao_movel", "hedge_ratio"]
+    assert list(series.columns) == ["a", "b", "spread", "zscore", "correlacao_movel", "hedge_ratio", "intercept"]
     assert signal is not None
     assert series["spread"].iloc[-1] == signal.spread
     assert series["zscore"].iloc[-1] == signal.zscore

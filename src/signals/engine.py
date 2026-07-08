@@ -82,6 +82,7 @@ def compute_pair_series(aligned: pd.DataFrame, corr_window: int = DEFAULT_CORR_W
 
     X = sm.add_constant(b.to_numpy())
     model = sm.OLS(a.to_numpy(), X).fit()
+    intercept = float(model.params[0])
     hedge_ratio = float(model.params[1])
     spread = pd.Series(np.asarray(model.resid), index=aligned.index)
 
@@ -98,6 +99,7 @@ def compute_pair_series(aligned: pd.DataFrame, corr_window: int = DEFAULT_CORR_W
             "zscore": zscore,
             "correlacao_movel": rolling_corr,
             "hedge_ratio": hedge_ratio,
+            "intercept": intercept,
         },
         index=aligned.index,
     )

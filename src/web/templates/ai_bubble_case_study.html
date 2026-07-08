@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Case study: SpaceX / bolha de IA — market_imbalances{% endblock %}
 {% block content %}
   <h1>Case study: SpaceX / bolha de IA</h1>
@@ -10,7 +11,8 @@
   </p>
 
   <h2>Intensidade de capex de IA (capex agregado / receita agregada, por trimestre)</h2>
-  {% if not capex_chart %}
+  {{ m.period_tabs(capex_periodo, param_name='capex_periodo') }}
+  {% if not capex_fig %}
     <p><em>Dados insuficientes ainda (rode o backfill).</em></p>
   {% else %}
     <p>
@@ -20,17 +22,23 @@
       tabela abaixo e o caveat de granularidade no plan.json).
     </p>
     <div class="chart-wrap">
-      <canvas id="capexChart" height="280"></canvas>
+      <div class="chart-canvas" id="capexChart"></div>
     </div>
   {% endif %}
 
   <h2>Cesta termômetro (retorno acumulado, base 100)</h2>
   <p>SMH, NVDA, CRWV, DLR, EQIX, SPCX, RKLB — média simples de cada série rebasada ao seu próprio primeiro valor disponível.</p>
-  {% if not basket_chart %}
+  <p class="note">
+    Eixo em escala logarítmica: a NVDA sozinha multiplicou por ~190x desde 2016 (base 100 →
+    quase 19.000) — numa escala linear isso achata as outras 6 linhas (e a média) até ficarem
+    indistinguíveis de zero.
+  </p>
+  {{ m.period_tabs(cesta_periodo, param_name='cesta_periodo') }}
+  {% if not basket_fig %}
     <p><em>Dados insuficientes ainda (rode o backfill).</em></p>
   {% else %}
     <div class="chart-wrap">
-      <canvas id="basketChart" height="280"></canvas>
+      <div class="chart-canvas" id="basketChart"></div>
     </div>
   {% endif %}
 
@@ -50,7 +58,7 @@
       <tbody>
         {% for row in snapshot %}
           <tr>
-            <td>{{ row.ticker }}</td>
+            <td>{{ m.tkr(row.ticker) }}</td>
             <td>
               {% if row.capex is not none %}
                 US$ {{ "{:,.1f}".format(row.capex / 1e9) }} bi ({{ row.capex_data }})
@@ -73,22 +81,11 @@
   {% endif %}
 
   <script>
-    {% if capex_chart %}
-      const capexData = {{ capex_chart | tojson }};
-      new Chart(document.getElementById('capexChart'), {
-        type: 'line',
-        data: { labels: capexData.labels, datasets: capexData.datasets },
-        options: { animation: false, scales: { y: { ticks: { callback: v => (v * 100).toFixed(0) + '%' } } } },
-      });
+    {% if capex_fig %}
+      renderPlot('capexChart', {{ capex_fig | tojson }});
     {% endif %}
-
-    {% if basket_chart %}
-      const basketData = {{ basket_chart | tojson }};
-      new Chart(document.getElementById('basketChart'), {
-        type: 'line',
-        data: { labels: basketData.labels, datasets: basketData.datasets },
-        options: { animation: false, scales: { x: { ticks: { maxTicksLimit: 12 } } } },
-      });
+    {% if basket_fig %}
+      renderPlot('basketChart', {{ basket_fig | tojson }});
     {% endif %}
   </script>
 {% endblock %}

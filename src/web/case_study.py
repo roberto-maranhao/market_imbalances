@@ -53,24 +53,29 @@ def capex_intensity_index(hyperscaler_series: dict[str, dict[str, pd.Series]]) -
     return pd.Series(ratios, index=pd.DatetimeIndex(valid_dates))
 
 
-def thermometer_basket_index(session: Session, tickers: list[str] = THERMOMETER_TICKERS) -> pd.Series:
-    """Cesta igualmente ponderada dos ativos 'termômetro' (ver plan.json), cada um rebasado
-    a 100 no seu primeiro valor disponível e depois calculada a média simples — mede retorno
-    acumulado comparável entre ativos de preço/histórico bem diferentes (ex: SPCX só tem
-    poucas semanas de histórico pós-IPO, os demais têm anos)."""
-    rebased_series = []
+def thermometer_raw_series(session: Session, tickers: list[str] = THERMOMETER_TICKERS) -> dict[str, pd.Series]:
+    """Séries brutas (não rebasadas) de cada ativo da cesta termômetro — base tanto para a
+    média da cesta (thermometer_basket_index) quanto para plotar cada linha individual."""
+    result: dict[str, pd.Series] = {}
     for ticker in tickers:
         instrument = session.query(Instrument).filter_by(ticker=ticker).one_or_none()
         if instrument is None:
             continue
         series = load_price_series(session, instrument)
-        if series.empty:
-            continue
-        rebased_series.append((series / float(series.iloc[0])) * 100)
+        if not series.empty:
+            result[ticker] = series
+    return result
 
-    if not rebased_series:
+
+def thermometer_basket_index(raw_series: dict[str, pd.Series]) -> pd.Series:
+    """Cesta igualmente ponderada dos ativos 'termômetro' (ver plan.json), cada um rebasado
+    a 100 no seu primeiro valor disponível e depois calculada a média simples — mede retorno
+    acumulado comparável entre ativos de preço/histórico bem diferentes (ex: SPCX só tem
+    poucas semanas de histórico pós-IPO, os demais têm anos)."""
+    if not raw_series:
         return pd.Series(dtype=float)
 
+    rebased_series = [(series / float(series.iloc[0])) * 100 for series in raw_series.values()]
     combined = pd.concat(rebased_series, axis=1)
     return combined.mean(axis=1, skipna=True)
 
